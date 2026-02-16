@@ -3,6 +3,8 @@
 	import './+page.css';
 	import { helpTopics } from '$lib/help-topics';
 	import { marked } from 'marked';
+	import stackedLogo from '$lib/assets/BurnsMcDonnell_Stacked_RGB_R_high.png';
+	import horizontalLogo from '$lib/assets/BurnsMcDonnell_Horiz_Small_RGB_R_high.png';
 
 
 	const allowedOrigins = new Set([
@@ -793,7 +795,7 @@ const typeIconKey = (value) => {
 	<section class="panel">
 		<header class="panel__header">
 			<div class="panel__header-row">
-				<div class="panel__title"><img class='headerLogo' src="/src/lib/assets/BurnsMcDonnell_Stacked_RGB_R_high.png" alt="Logo" /></div>
+				<div class="panel__title"><img class='headerLogo' src={stackedLogo} alt="Logo" /></div>
 			</div>
 			<div class="tabs" role="tablist" aria-label="Location panels">
 				<button
@@ -1180,7 +1182,7 @@ const typeIconKey = (value) => {
 			<img
 				class="footer-logo"
 				class:footer-logo--loading={sitesLoading}
-				src="/src/lib/assets/BurnsMcDonnell_Horiz_Small_RGB_R_high.png"
+				src={horizontalLogo}
 				alt="Burns & McDonnell"
 			/>
 		</footer>

@@ -1,14 +1,24 @@
-FROM node:20-bullseye-slim
+FROM node:20-bullseye-slim AS builder
 
 WORKDIR /app
-
-ENV NODE_ENV=development
 
 COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+RUN npm run build && npm prune --omit=dev
 
-EXPOSE 5179
+FROM node:20-bullseye-slim
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5179"]
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=8080
+
+COPY --from=builder /app/package.json /app/package-lock.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/build ./build
+
+EXPOSE 8080
+
+CMD ["npm", "run", "start"]
