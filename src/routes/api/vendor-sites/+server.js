@@ -1,18 +1,15 @@
 import { json } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
-import { fetchVendorSites } from '$lib/server/vendor-sites.js';
-import { sampleVendorSites } from '$lib/server/sample-vendor-sites.js';
+import { filterVendorSites } from '$lib/server/vendor-sites.js';
+import { getCachedVendorSites } from '$lib/server/vendor-sites-cache.js';
 
-export const GET = async () => {
-	if (env.VENDOR_DB_ENABLED !== 'true') {
-		return json({ source: 'sample', sites: sampleVendorSites });
-	}
+export const GET = async ({ url }) => {
+	const payload = await getCachedVendorSites();
+	const vendorId = url.searchParams.get('vendor_id');
+	const vendorName = url.searchParams.get('vendor_name');
+	const filteredSites =
+		(vendorId && vendorId.trim()) || (vendorName && vendorName.trim())
+			? filterVendorSites(payload.sites, { vendorId, vendorName })
+			: payload.sites;
 
-	try {
-		const sites = await fetchVendorSites();
-		return json({ source: 'database', sites });
-	} catch (err) {
-		console.error('Failed to load vendor sites from database', err);
-		return json({ source: 'sample', sites: sampleVendorSites, error: 'db_unavailable' });
-	}
+	return json({ ...payload, sites: filteredSites });
 };

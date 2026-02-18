@@ -15,6 +15,7 @@
 
 	/** @typedef {{ type: string, id: string, name: string, address: string, city: string, state: string, zip: string }} Site */
 	/** @typedef {{ key: string, id: string, name: string, address: string, city: string, state: string, zip: string, types: string[], siteIds: string[] }} GroupedSite */
+	/** @typedef {{ id: string, name: string, city: string, state: string }} VendorSuggestion */
 
 	let vendorName = '';
 	let shipToName = '';
@@ -69,6 +70,24 @@
 	let shipToTabIsShipTo = false;
 	let userSearchedVendor = false;
 	let userSearchedShipTo = false;
+	/** @type {VendorSuggestion[]} */
+	let vendorSuggestions = [];
+	let showVendorSuggestions = false;
+	let vendorSearchInFlight = false;
+	/** @type {number | null} */
+	let vendorSearchTimer = null;
+	/** @type {AbortController | null} */
+	let vendorSearchAbortController = null;
+	let vendorActiveSuggestionIndex = -1;
+	/** @type {string | null} */
+	let selectedVendorId = null;
+	/** @type {string | null} */
+	let selectedVendorName = null;
+	/** @type {HTMLDivElement | null} */
+	let vendorAutocompleteWrap = null;
+
+	const VENDOR_SUGGESTION_LIMIT = 5;
+	const VENDOR_SEARCH_DEBOUNCE_MS = 300;
 
 	const helpTopicsWithHtml = helpTopics.map((topic) => ({
 		...topic,
@@ -76,6 +95,10 @@
 	}));
 
 	const PROCORE_PROXY_ENDPOINT = '/api/procore/commitment';
+	const DETAIL_VIEWS = new Set([
+		'commitments.purchase_order_contracts.detail',
+		'commitments.work_order_contracts.detail'
+	]);
 	const COMMITMENT_ENDPOINTS = {
 		'commitments.purchase_order_contracts.edit': 'purchase_order_contracts',
 		'commitments.work_order_contracts.edit': 'work_order_contracts'
@@ -104,7 +127,23 @@
 		}
 		sitesLoading = true;
 		try {
-			const response = await fetch(tab === 'vendor' ? '/api/vendor-sites' : '/api/project-sites');
+			const resolvedVendorName = String(selectedVendorName ?? '').trim() || vendorName.trim();
+			if (tab === 'vendor' && !String(selectedVendorId ?? '').trim() && !resolvedVendorName) {
+				vendorSites = [];
+				typeOptions = [];
+				return;
+			}
+			const endpoint = tab === 'vendor' ? '/api/vendor-sites' : '/api/project-sites';
+			const requestUrl = new URL(endpoint, window.location.origin);
+			if (tab === 'vendor') {
+				const vendorId = String(selectedVendorId ?? '').trim();
+				if (resolvedVendorName) {
+					requestUrl.searchParams.set('vendor_name', resolvedVendorName);
+				} else if (vendorId) {
+					requestUrl.searchParams.set('vendor_id', vendorId);
+				}
+			}
+			const response = await fetch(requestUrl.toString());
 			if (!response.ok) throw new Error(`Failed to load ${tab} sites`);
 			const payload = await response.json();
 			const sites = Array.isArray(payload?.sites) ? payload.sites : [];
@@ -113,8 +152,9 @@
 			} else {
 				shipToSites = sites;
 			}
+			const allSitesForTab = tab === 'vendor' ? vendorSites : shipToSites;
 			typeOptions = Array.from(
-				new Set(sites.flatMap((/** @type {Site} */ site) => parseTypes(site.type)))
+				new Set(allSitesForTab.flatMap((/** @type {Site} */ site) => parseTypes(site.type)))
 			);
 		} catch (err) {
 			console.warn('Unable to load sites', err);
@@ -293,11 +333,11 @@
 	const requestVendorCompany = async (data) => {
 		const context = extractContext(data);
 		const view = extractView(data);
+		const isEditView =
+			view === 'commitments.purchase_order_contracts.edit' ||
+			view === 'commitments.work_order_contracts.edit';
 		/** @type {'commitments.purchase_order_contracts.edit' | 'commitments.work_order_contracts.edit' | null} */
-		const viewKey =
-			view === 'commitments.purchase_order_contracts.edit' || view === 'commitments.work_order_contracts.edit'
-				? view
-				: null;
+		const viewKey = isEditView ? view : null;
 		if (!context || !viewKey) return;
 		const endpoint = COMMITMENT_ENDPOINTS[viewKey];
 		if (!endpoint) return;
@@ -358,8 +398,14 @@
 				const vendorCompany = extractVendorCompany(payload);
 				if (vendorCompany && !userSearchedVendor) {
 					vendorName = vendorCompany;
+					selectedVendorId = null;
+					selectedVendorName = null;
+					vendorSites = [];
+					vendorSuggestions = [];
+					showVendorSuggestions = false;
+					vendorActiveSuggestionIndex = -1;
 					userSearchedVendor = false;
-					void loadSites('vendor', false);
+					void fetchVendorSuggestions(vendorCompany);
 				}
 				const projectName = extractProjectName(payload);
 				if (projectName && !userSearchedShipTo) {
@@ -372,8 +418,14 @@
 				const vendorCompany = extractVendorCompany(payload);
 				if (vendorCompany && !userSearchedVendor) {
 					vendorName = vendorCompany;
+					selectedVendorId = null;
+					selectedVendorName = null;
+					vendorSites = [];
+					vendorSuggestions = [];
+					showVendorSuggestions = false;
+					vendorActiveSuggestionIndex = -1;
 					userSearchedVendor = false;
-					void loadSites('vendor', false);
+					void fetchVendorSuggestions(vendorCompany);
 				}
 				const projectName = extractProjectName(payload);
 				if (projectName && !userSearchedShipTo) {
@@ -409,6 +461,10 @@
 		}
 
 		const incomingView = extractView(event.data);
+		if (typeof incomingView === 'string' && DETAIL_VIEWS.has(incomingView)) {
+			clearSearchStateForDetailView();
+			return;
+		}
 		if (event.data && typeof event.data === 'object' && 'type' in event.data) {
 			const type = /** @type {{ type?: unknown }} */ (event.data).type;
 			if (type === 'sidepanel:app:visible') {
@@ -531,16 +587,202 @@
 			clearTimeout(toastTimer);
 			toastTimer = null;
 		}
+		if (vendorSearchTimer !== null) {
+			clearTimeout(vendorSearchTimer);
+			vendorSearchTimer = null;
+		}
+		if (vendorSearchAbortController) {
+			vendorSearchAbortController.abort();
+			vendorSearchAbortController = null;
+		}
 	});
 
+	/** @param {string} value */
+	const hasVendorSearchSeed = (value) => {
+		const firstToken = value.trim().split(/\s+/)[0] ?? '';
+		return firstToken.length > 0;
+	};
+
+	/** @param {string} query */
+	const fetchVendorSuggestions = async (query) => {
+		const trimmedQuery = query.trim();
+		if (!hasVendorSearchSeed(trimmedQuery)) {
+			vendorSuggestions = [];
+			showVendorSuggestions = false;
+			vendorActiveSuggestionIndex = -1;
+			return;
+		}
+		if (vendorSearchAbortController) {
+			vendorSearchAbortController.abort();
+		}
+		vendorSearchAbortController = new AbortController();
+		vendorSearchInFlight = true;
+		showVendorSuggestions = true;
+		try {
+			const requestUrl = new URL('/api/vendor-sites/search', window.location.origin);
+			requestUrl.searchParams.set('q', trimmedQuery);
+			requestUrl.searchParams.set('limit', String(VENDOR_SUGGESTION_LIMIT));
+			const response = await fetch(requestUrl.toString(), {
+				signal: vendorSearchAbortController.signal
+			});
+			if (!response.ok) throw new Error(`Failed to search vendors (${response.status})`);
+			const payload = await response.json();
+			vendorSuggestions = Array.isArray(payload?.suggestions) ? payload.suggestions : [];
+			const exactMatch = payload?.exactMatch;
+			if (exactMatch?.name) {
+				selectVendorSuggestion(exactMatch, true);
+				return;
+			}
+			vendorActiveSuggestionIndex = vendorSuggestions.length > 0 ? 0 : -1;
+		} catch (err) {
+			if (!(err instanceof DOMException && err.name === 'AbortError')) {
+				console.warn('Unable to search vendors', err);
+				vendorSuggestions = [];
+				vendorActiveSuggestionIndex = -1;
+			}
+		} finally {
+			vendorSearchInFlight = false;
+			vendorSearchAbortController = null;
+		}
+	};
+
+	const queueVendorSuggestions = () => {
+		if (vendorSearchTimer !== null) {
+			clearTimeout(vendorSearchTimer);
+		}
+		const query = vendorName.trim();
+		if (!hasVendorSearchSeed(query)) {
+			vendorSuggestions = [];
+			showVendorSuggestions = false;
+			vendorActiveSuggestionIndex = -1;
+			return;
+		}
+		showVendorSuggestions = true;
+		vendorSearchTimer = window.setTimeout(() => {
+			vendorSearchTimer = null;
+			void fetchVendorSuggestions(query);
+		}, VENDOR_SEARCH_DEBOUNCE_MS);
+	};
+
+	/** @param {VendorSuggestion} suggestion
+	 * @param {boolean} autoSelect
+	 */
+	const selectVendorSuggestion = (suggestion, autoSelect = false) => {
+		selectedVendorId = suggestion.id;
+		selectedVendorName = suggestion.name;
+		vendorName = suggestion.name;
+		showVendorSuggestions = false;
+		vendorSuggestions = [];
+		vendorActiveSuggestionIndex = -1;
+		userSearchedVendor = true;
+		selectedSiteId = null;
+		void loadSites('vendor', !autoSelect);
+	};
+
+	const getActiveVendorSuggestion = () => {
+		if (vendorActiveSuggestionIndex >= 0 && vendorActiveSuggestionIndex < vendorSuggestions.length) {
+			return vendorSuggestions[vendorActiveSuggestionIndex];
+		}
+		return vendorSuggestions[0];
+	};
+
+	const submitVendorSearch = () => {
+		const activeSuggestion = getActiveVendorSuggestion();
+		if (activeSuggestion) {
+			selectVendorSuggestion(activeSuggestion);
+			return;
+		}
+		void loadSites('vendor');
+	};
+
+	/** @param {KeyboardEvent} event */
+	const handleVendorInputKeydown = (event) => {
+		if (event.key === 'Escape') {
+			showVendorSuggestions = false;
+			vendorActiveSuggestionIndex = -1;
+			return;
+		}
+		if (event.key === 'ArrowDown') {
+			if (!showVendorSuggestions && vendorSuggestions.length > 0) {
+				showVendorSuggestions = true;
+			}
+			if (vendorSuggestions.length === 0) return;
+			event.preventDefault();
+			vendorActiveSuggestionIndex =
+				vendorActiveSuggestionIndex < 0
+					? 0
+					: (vendorActiveSuggestionIndex + 1) % vendorSuggestions.length;
+			return;
+		}
+		if (event.key === 'ArrowUp') {
+			if (vendorSuggestions.length === 0) return;
+			event.preventDefault();
+			if (!showVendorSuggestions) {
+				showVendorSuggestions = true;
+			}
+			vendorActiveSuggestionIndex =
+				vendorActiveSuggestionIndex <= 0
+					? vendorSuggestions.length - 1
+					: vendorActiveSuggestionIndex - 1;
+			return;
+		}
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			submitVendorSearch();
+		}
+	};
+
+	/** @param {Event} event */
+	const handleVendorInput = (event) => {
+		const target = /** @type {HTMLInputElement | null} */ (event.currentTarget);
+		const nextValue = target?.value ?? '';
+		vendorName = nextValue;
+		userSearchedVendor = true;
+		selectedVendorId = null;
+		selectedVendorName = null;
+		selectedSiteId = null;
+		vendorSites = [];
+		vendorActiveSuggestionIndex = -1;
+		queueVendorSuggestions();
+	};
+
 	const refreshSearch = () => {
+		if (vendorSearchTimer !== null) {
+			clearTimeout(vendorSearchTimer);
+			vendorSearchTimer = null;
+		}
+		if (vendorSearchAbortController) {
+			vendorSearchAbortController.abort();
+			vendorSearchAbortController = null;
+		}
 		vendorName = '';
+		selectedVendorId = null;
+		selectedVendorName = null;
+		vendorSites = [];
+		vendorSuggestions = [];
+		showVendorSuggestions = false;
+		vendorActiveSuggestionIndex = -1;
 		userSearchedVendor = false;
 	};
 
 	const refreshShipToSearch = () => {
 		shipToName = '';
 		userSearchedShipTo = false;
+	};
+
+	const clearSearchStateForDetailView = () => {
+		refreshSearch();
+		refreshShipToSearch();
+		selectedSiteId = null;
+		selectedShipToId = null;
+		vendorSites = [];
+		shipToSites = [];
+		filteredVendorSites = [];
+		filteredShipToSites = [];
+		groupedVendorSites = [];
+		groupedShipToSites = [];
+		selectedTypes = [];
+		typeOptions = [];
 	};
 
 	const toggleTypeFilter = () => {
@@ -560,15 +802,9 @@
 	};
 
 	$: {
-		const query = vendorName.trim().toLowerCase();
-		const nameFiltered = query
-			? vendorSites.filter((site) =>
-					`${site.id} ${site.name}`.toLowerCase().includes(query)
-			  )
-			: [];
 		filteredVendorSites = selectedTypes.length
-			? nameFiltered.filter((site) => selectedTypes.includes(site.type))
-			: nameFiltered;
+			? vendorSites.filter((site) => selectedTypes.includes(site.type))
+			: vendorSites;
 	}
 
 	$: {
@@ -759,10 +995,14 @@ const typeIconKey = (value) => {
 
 	/** @param {MouseEvent} event */
 	const handleDocumentClick = (event) => {
-		if (!showTypeFilter) return;
 		const target = /** @type {Node | null} */ (event.target);
-		if (filterWrap && target && filterWrap.contains(target)) return;
-		showTypeFilter = false;
+		if (showTypeFilter && !(filterWrap && target && filterWrap.contains(target))) {
+			showTypeFilter = false;
+		}
+		if (showVendorSuggestions && !(vendorAutocompleteWrap && target && vendorAutocompleteWrap.contains(target))) {
+			showVendorSuggestions = false;
+			vendorActiveSuggestionIndex = -1;
+		}
 	};
 
 	onMount(() => {
@@ -898,27 +1138,73 @@ const typeIconKey = (value) => {
 							{/if}
 						</div>
 					</div>
-					<div class="search__input">
-						<input
-							type="text"
-							bind:value={vendorName}
-							placeholder="enter Supplier Name or ID"
-							aria-label="Supplier Name or ID"
-						/>
-						{#if vendorName.trim().length}
-							<button class="search__refresh" aria-label="Clear" on:click={refreshSearch}>
+					<div class="search__autocomplete" bind:this={vendorAutocompleteWrap}>
+						<div class="search__input">
+							<input
+								type="text"
+								bind:value={vendorName}
+								placeholder="enter Supplier Name"
+								aria-label="Supplier Name"
+								autocomplete="off"
+								on:input={handleVendorInput}
+								on:focus={() => {
+									if (vendorSuggestions.length > 0) {
+										showVendorSuggestions = true;
+										if (vendorActiveSuggestionIndex < 0) {
+											vendorActiveSuggestionIndex = 0;
+										}
+									}
+								}}
+								on:keydown={handleVendorInputKeydown}
+							/>
+							{#if vendorName.trim().length}
+								<button class="search__refresh" aria-label="Clear" on:click={refreshSearch}>
+									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<line x1="6" y1="6" x2="18" y2="18" />
+										<line x1="6" y1="18" x2="18" y2="6" />
+									</svg>
+								</button>
+							{/if}
+							<button class="search__submit" aria-label="Search" on:click={submitVendorSearch}>
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<line x1="6" y1="6" x2="18" y2="18" />
-									<line x1="6" y1="18" x2="18" y2="6" />
+									<circle cx="11" cy="11" r="7" />
+									<path d="M21 21l-4.35-4.35" />
 								</svg>
 							</button>
+						</div>
+						{#if showVendorSuggestions}
+							<ul class="search__suggestions" role="listbox" aria-label="Vendor suggestions">
+								{#if vendorSuggestions.length === 0}
+									<li class="search__suggestion search__suggestion--empty">
+										{vendorSearchInFlight ? 'Searching vendors...' : 'No vendor matches'}
+									</li>
+								{:else}
+									{#each vendorSuggestions as suggestion, index}
+										<li
+											class="search__suggestion"
+											class:search__suggestion--active={index === vendorActiveSuggestionIndex}
+											role="option"
+											aria-selected={index === vendorActiveSuggestionIndex || selectedVendorId === suggestion.id}
+										>
+											<button
+												type="button"
+												on:mouseenter={() => (vendorActiveSuggestionIndex = index)}
+												on:focus={() => (vendorActiveSuggestionIndex = index)}
+												on:click={() => selectVendorSuggestion(suggestion)}
+											>
+												<span class="search__suggestion-name">{suggestion.name}</span>
+												<span class="search__suggestion-meta">
+													{suggestion.id}
+													{#if suggestion.city || suggestion.state}
+														- {suggestion.city}{suggestion.city && suggestion.state ? ', ' : ''}{suggestion.state}
+													{/if}
+												</span>
+											</button>
+										</li>
+									{/each}
+								{/if}
+							</ul>
 						{/if}
-						<button class="search__submit" aria-label="Search" on:click={() => loadSites('vendor')}>
-							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<circle cx="11" cy="11" r="7" />
-								<path d="M21 21l-4.35-4.35" />
-							</svg>
-						</button>
 					</div>
 					{#if selectedTypes.length}
 						<div class="filter-chips" aria-label="Active type filters">
