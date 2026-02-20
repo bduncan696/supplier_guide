@@ -1,0 +1,30 @@
+name: Build and Deploy - Test
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  print-github-ref:
+    runs-on: arc-runner-set
+    steps:
+      - name: Print github.ref
+        run: echo "github.ref is ${{ github.ref }}"
+  call-reusable-workflow:
+    uses: burnsmcd/cor-gcp-cicd-workflows/.github/workflows/build_and_deploy.yml@genericize
+    with:
+      artifact_registry_name: bmcd-jfrog
+      container_repo_host: us-docker.pkg.dev
+      container_repo_path: cor-docker-test-centralus/cdb-epc-tools-sidepanel
+      dockerfile_path: Dockerfile
+      environment: test
+      image_tag: ${{ github.ref_name }}
+      project_id: cdb-epc-tools-test-b3b1
+      service_name: cdb-epc-tools-sidepanel-test-cr
+      
+    secrets:
+      DEPLOYMENT_SERVICE_ACCOUNT_KEY: ${{ secrets.DEPLOYMENT_SERVICE_ACCOUNT_KEY_TEST }}
+      ARTIFACTORY_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+      ARTIFACTORY_TOKEN: ${{ secrets.ARTIFACTORY_TOKEN }}
