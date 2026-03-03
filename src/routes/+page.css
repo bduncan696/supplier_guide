@@ -1,8 +1,8 @@
 :root {
-	--pc-primary: hsl(19, 100%, 50%);
+	--pc-primary: rgb(245, 127, 64);
 	--pc-primary-strong: hsl(19, 100%, 50%);
-	--pc-surface: hsl(210, 18%, 94%);
-	--pc-panel: hsl(210, 22%, 92%);
+	--pc-surface: rgb(255, 255, 255);
+	--pc-panel: rgb(255, 255, 255);
 	--pc-border: hsl(210, 10%, 70%);
 	--pc-border-strong: hsl(210, 12%, 55%);
 	--pc-text: hsl(212, 19%, 20%);
@@ -14,7 +14,7 @@
 :global(html),
 :global(body) {
 	margin: 0;
-	background: #f4f5f6;
+	background: #f2f4f5;
 	color: var(--pc-text);
 	overflow: hidden;
 	height: 100%;
@@ -23,7 +23,7 @@
 .page {
 	height: 100%;
 	padding: 5px;
-	background: #f4f5f6;
+	background: rgb(255, 255, 255);
 	overflow: hidden;
 	box-sizing: border-box;
 }
@@ -43,9 +43,8 @@
 	width: 100%;
 	height: calc(100% - 25px);
 	background: var(--pc-surface);
-	border-radius: 16px;
-	box-shadow: var(--pc-shadow);
-	border: 2px solid var(--pc-border);
+	box-shadow: none;
+	border: none;
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
@@ -66,9 +65,8 @@
 	align-items: stretch;
 	justify-content: flex-start;
 	padding: 0.8rem 1rem;
-	background: hsl(210, 24%, 96%);
-	border-bottom: 2px solid var(--pc-border);
-	gap: 0.75rem;
+	background: rgb(255, 255, 255);
+	gap: 0.25rem;
 }
 
 .panel__header-row {
@@ -78,11 +76,6 @@
 	gap: 0.75rem;
 }
 
-.panel__title {
-	font-weight: 700;
-	font-size: 1rem;
-}
-
 .panel__footer {
 	display: flex;
 	align-items: center;
@@ -90,7 +83,7 @@
 	gap: 0.4rem;
 	padding: 0.25rem 0.5rem;
 	border-top: none;
-	background: hsl(210, 24%, 96%);
+	background: rgb(255, 255, 255);
 	font-size: 0.75rem;
 	font-weight: 600;
 	color: var(--pc-muted);
@@ -140,7 +133,7 @@
 	display: flex;
 	align-items: center;
 	gap: 0.35rem;
-	background: #fff;
+	background: rgb(255, 255, 255);
 	border-radius: 4px;
 	border: 2px solid var(--pc-border);
 	padding: 0.2rem;
@@ -169,11 +162,6 @@
 	flex: 0 0 auto;
 	width: 18px;
 	height: 18px;
-}
-
-.tab--help {
-	padding-top: 0.7rem;
-	padding-bottom: 0.7rem;
 }
 
 .tab--active {
@@ -242,7 +230,7 @@
 }
 
 .search {
-	padding: 1rem 1.25rem 0.5rem;
+	padding: 0.25rem 0.25rem 0.25rem;
 	display: flex;
 	flex-direction: column;
 	gap: 0.4rem;
@@ -253,6 +241,12 @@
 	justify-content: space-between;
 	align-items: center;
 	gap: 0.5rem;
+}
+
+.search__actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
 }
 
 .search__input {
@@ -275,7 +269,7 @@
 	border: none;
 	border-radius: 0;
 	padding: 0 0.75rem;
-	font-weight: 600;
+	font-weight: 400;
 	background: #fff;
 	color: var(--pc-text);
 }
@@ -291,6 +285,10 @@
 	justify-content: flex-end;
 }
 
+.search__help-wrap {
+	display: inline-flex;
+}
+
 .search__filter {
 	width: 36px;
 	height: 36px;
@@ -301,6 +299,22 @@
 	display: grid;
 	place-items: center;
 	cursor: pointer;
+	font-size: 3rem;
+}
+
+.search__help {
+	width: 36px;
+	height: 36px;
+	border-radius: 4px;
+	border: none;
+	background: transparent;
+	color: var(--pc-primary-strong);
+	display: grid;
+	place-items: center;
+	cursor: pointer;
+	font-weight: 400;
+	font-size: 1.5rem;
+	line-height: 1;
 }
 
 .search__refresh {
@@ -478,8 +492,93 @@
 	cursor: pointer;
 }
 
+.vendor-status-card {
+	margin-top: 0.45rem;
+	border-radius: 4px;
+	background: #fff;
+	overflow: hidden;
+}
+
+.vendor-status-card__header {
+	width: 100%;
+	border: none;
+	background: #fff;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 0.55rem 0.7rem;
+	font-weight: 700;
+	font-size: 0.9rem;
+	color: #000;
+	cursor: pointer;
+}
+
+.vendor-status-card__title {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+}
+
+.vendor-status-card__dot {
+	width: 15px;
+	height: 15px;
+	border-radius: 50%;
+	display: inline-block;
+	flex: 0 0 auto;
+}
+
+.vendor-status-card__dot--red {
+	background: #ff3b30;
+}
+
+.vendor-status-card__dot--gray {
+	background: #6c757d;
+}
+
+.vendor-status-card__dot--yellow {
+	background: #ffd60a;
+}
+
+.vendor-status-card__dot--green {
+	background: #2f9e44;
+}
+
+.vendor-status-card__chevron {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	transition: transform 0.2s ease;
+}
+
+.vendor-status-card__chevron svg {
+	display: block;
+	width: 18px;
+	height: 18px;
+}
+
+.vendor-status-card__chevron--collapsed {
+	transform: rotate(180deg);
+}
+
+.vendor-status-card__body {
+	border-top: 2px solid var(--pc-border);
+	background: #f8f9fa;
+	padding: 0.55rem 0.7rem;
+}
+
+.vendor-status-card__details {
+	color: var(--pc-muted);
+	white-space: pre-wrap;
+	line-height: 1.35;
+	font-size: 0.85rem;
+}
+
+.vendor-status-card__details--empty {
+	font-style: italic;
+}
+
 .list {
-	padding: 0.5rem 1.25rem 1.25rem;
+	padding: 0.5rem 0.5rem 0.5rem;
 	display: flex;
 	flex-direction: column;
 	gap: 0.75rem;
@@ -498,8 +597,16 @@
 }
 
 .help {
-	padding: 1rem 1.25rem;
+	padding: 1rem 0;
 	color: var(--pc-text);
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.help-inline {
+	margin: 0;
+	width: 100%;
+	box-sizing: border-box;
 }
 
 .help h2 {
@@ -515,11 +622,11 @@
 .help__accordion {
 	display: grid;
 	gap: 0.5rem;
+	width: 100%;
+	box-sizing: border-box;
 }
 
 .help__item {
-	border: 2px solid var(--pc-border);
-	border-radius: 4px;
 	background: #fff;
 	overflow: hidden;
 }
@@ -533,7 +640,7 @@
 	padding: 0.6rem 0.75rem;
 	background: #fff;
 	border: none;
-	font-weight: 700;
+	font-weight: 600;
 	font-size: 0.9rem;
 	color: var(--pc-text);
 	cursor: pointer;
@@ -544,8 +651,21 @@
 }
 
 .help__chevron {
-	font-weight: 700;
-	color: var(--pc-muted);
+	color: #000;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	transition: transform 0.2s ease;
+}
+
+.help__chevron svg {
+	display: block;
+	width: 18px;
+	height: 18px;
+}
+
+.help__chevron--collapsed {
+	transform: rotate(180deg);
 }
 
 .help__body {
@@ -651,6 +771,16 @@
 	display: block;
 }
 
+.card__chip-icon--payment {
+	width: 30px;
+	height: 30px;
+}
+
+.card__chip-icon--purchasing {
+	width: 35px;
+	height: 35px;
+}
+
 .card__chip-text {
 	font-size: 0.7rem;
 }
@@ -676,13 +806,8 @@
 	justify-content: center;
 }
 
-.card__title {
-	font-weight: 700;
-	font-size: 1rem;
-}
-
 .card__address {
-	font-weight: 600;
+	font-weight: 400;
 	color: var(--pc-muted);
 }
 
