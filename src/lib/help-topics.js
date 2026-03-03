@@ -29,5 +29,10 @@ export const helpTopics = [
 		body: 'Click a card to copy the address block. The copy icon in the corner indicates the action.',
 		image: copyAddressCardImage,
 		imageAlt: 'Copy address card action'
+	},
+	{
+		id: 'status',
+		title: 'Supplier Status Definitions',
+		body: '- **Registered:** Suppliers whose status is "Registered" have a complete and up-to-date registration and are ready for pre-qualification evaluation.\n\n- **Prospective:** Suppliers whose status is "Prospective" have either not yet completed a registration or are pending review by Burns & McDonnell and are considered incomplete.\n\n- **Expired:** Suppliers whose status is "Expired" have not updated their information within the last calendar year. Their information will need to be updated before they can be considered.\n\n- **Caution:** Suppliers whose status is "Caution" have been flagged during the registration process due to one or more concerns. They may require additional information or mitigation prior to consideration. See the Status Details for additional information on why they are currently under a Caution.\n\n- **Do Not Use:** Suppliers whose status is "Do Not Use" are not currently eligible for use. See the Status Details for additional information on why they are currently ineligible.\n\n- **Merged:** Suppliers whose status is "Merged" are no longer active entities. They may have merged with or been purchased by another entity. See the Status Details for additional information on which entity should be used instead.\n\n- **Exempt:** Suppliers whose status is "Exempt" are not required to complete a registration. These include specific supplier types such as government entities, associations, and non-profits.'
 	}
 ];
