@@ -16,8 +16,8 @@
 		
 	]);
 
-	/** @typedef {{ type: string, id: string, name: string, address: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
-	/** @typedef {{ key: string, id: string, name: string, address: string, city: string, state: string, zip: string, types: string[], siteIds: string[] }} GroupedSite */
+	/** @typedef {{ type: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
+	/** @typedef {{ key: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[] }} GroupedSite */
 	/** @typedef {{ id: string, name: string, city: string, state: string }} VendorSuggestion */
 
 	let vendorName = '';
@@ -83,6 +83,7 @@
 	let showVendorSuggestions = false;
 	let vendorSearchInFlight = false;
 	let vendorStatusExpanded = false;
+	let vendorLookupCompleted = false;
 	/** @type {number | null} */
 	let vendorSearchTimer = null;
 	/** @type {AbortController | null} */
@@ -94,9 +95,19 @@
 	let selectedVendorName = null;
 	/** @type {HTMLDivElement | null} */
 	let vendorAutocompleteWrap = null;
+	let resolvedSupplierId = '';
+	let resolvedSupplierName = '';
+	let supplierRegistrationUrl = '';
+	let supplierActionUrl = '';
+	let supplierActionLabel = '';
+	let showSupplierActionLink = false;
 
 	const VENDOR_SUGGESTION_LIMIT = 5;
 	const VENDOR_SEARCH_DEBOUNCE_MS = 300;
+	const SUPPLIER_INTELLIGENCE_REQUEST_URL =
+		'https://burnsmcd.palantirfoundry.com/workspace/module/view/latest/ri.workshop.main.module.e074b65c-dfc2-40bd-abdc-5e5bbaba4846/requestsetup-1';
+	const SUPPLIER_REGISTRATION_BASE_URL =
+		'https://burnsmcd.palantirfoundry.com/workspace/module/edit/ri.workshop.main.module.e074b65c-dfc2-40bd-abdc-5e5bbaba4846/main-page?pageId=Registration';
 
 	const helpTopicsWithHtml = helpTopics.map((topic) => ({
 		...topic,
@@ -173,8 +184,15 @@ let openHelpTopicId = '';
 		sitesLoading = true;
 		try {
 			const resolvedVendorName = String(selectedVendorName ?? '').trim() || vendorName.trim();
+			const resolvedProjectName = shipToName.trim();
 			if (tab === 'vendor' && !String(selectedVendorId ?? '').trim() && !resolvedVendorName) {
 				vendorSites = [];
+				typeOptions = [];
+				vendorLookupCompleted = false;
+				return;
+			}
+			if (tab === 'shipTo' && !resolvedProjectName) {
+				shipToSites = [];
 				typeOptions = [];
 				return;
 			}
@@ -182,11 +200,13 @@ let openHelpTopicId = '';
 			const requestUrl = new URL(endpoint, window.location.origin);
 			if (tab === 'vendor') {
 				const vendorId = String(selectedVendorId ?? '').trim();
-				if (resolvedVendorName) {
-					requestUrl.searchParams.set('vendor_name', resolvedVendorName);
-				} else if (vendorId) {
+				if (vendorId) {
 					requestUrl.searchParams.set('vendor_id', vendorId);
+				} else if (resolvedVendorName) {
+					requestUrl.searchParams.set('vendor_name', resolvedVendorName);
 				}
+			} else if (resolvedProjectName) {
+				requestUrl.searchParams.set('project_name', resolvedProjectName);
 			}
 			const response = await fetch(requestUrl.toString());
 			if (!response.ok) throw new Error(`Failed to load ${tab} sites`);
@@ -194,6 +214,7 @@ let openHelpTopicId = '';
 			const sites = Array.isArray(payload?.sites) ? payload.sites : [];
 			if (tab === 'vendor') {
 				vendorSites = sites;
+				vendorLookupCompleted = true;
 			} else {
 				shipToSites = sites;
 			}
@@ -203,6 +224,9 @@ let openHelpTopicId = '';
 			);
 		} catch (err) {
 			console.warn('Unable to load sites', err);
+			if (tab === 'vendor') {
+				vendorLookupCompleted = true;
+			}
 		} finally {
 			sitesLoading = false;
 		}
@@ -788,6 +812,37 @@ let openHelpTopicId = '';
 		void loadSites('vendor', !autoSelect);
 	};
 
+	$: resolvedSupplierId =
+		String(selectedVendorId ?? '').trim() || String(vendorSites[0]?.id ?? '').trim();
+
+	$: resolvedSupplierName =
+		String(selectedVendorName ?? '').trim() ||
+		String(vendorSites[0]?.name ?? '').trim() ||
+		vendorName.trim();
+
+	$: {
+		if (!resolvedSupplierId) {
+			supplierRegistrationUrl = SUPPLIER_INTELLIGENCE_REQUEST_URL;
+		} else {
+			const url = new URL(SUPPLIER_REGISTRATION_BASE_URL);
+			url.searchParams.set('activeSupplierId', resolvedSupplierId);
+			supplierRegistrationUrl = url.toString();
+		}
+	}
+
+	$: showSupplierActionLink =
+		Boolean(resolvedSupplierId) || (vendorLookupCompleted && vendorName.trim().length > 0);
+
+	$: {
+		if (resolvedSupplierId) {
+			supplierActionUrl = supplierRegistrationUrl;
+			supplierActionLabel = `Open supplier registration for ${resolvedSupplierName}`;
+		} else {
+			supplierActionUrl = SUPPLIER_INTELLIGENCE_REQUEST_URL;
+			supplierActionLabel = 'Go directly to Supplier Intelligence';
+		}
+	}
+
 	const getActiveVendorSuggestion = () => {
 		if (vendorActiveSuggestionIndex >= 0 && vendorActiveSuggestionIndex < vendorSuggestions.length) {
 			return vendorSuggestions[vendorActiveSuggestionIndex];
@@ -795,13 +850,26 @@ let openHelpTopicId = '';
 		return vendorSuggestions[0];
 	};
 
-	const submitVendorSearch = () => {
-		const activeSuggestion = getActiveVendorSuggestion();
-		if (activeSuggestion) {
-			selectVendorSuggestion(activeSuggestion);
+	const submitVendorSearch = async () => {
+		const query = vendorName.trim();
+		if (!query) {
+			refreshSearch();
 			return;
 		}
-		void loadSites('vendor');
+
+		if (selectedVendorId) {
+			await loadSites('vendor');
+			return;
+		}
+
+		await fetchVendorSuggestions(query);
+		if (selectedVendorId) return;
+
+		vendorSites = [];
+		typeOptions = [];
+		selectedSiteId = null;
+		showVendorSuggestions = vendorSuggestions.length > 0;
+		vendorLookupCompleted = true;
 	};
 
 	/** @param {KeyboardEvent} event */
@@ -837,7 +905,7 @@ let openHelpTopicId = '';
 		}
 		if (event.key === 'Enter') {
 			event.preventDefault();
-			submitVendorSearch();
+			void submitVendorSearch();
 		}
 	};
 
@@ -852,6 +920,7 @@ let openHelpTopicId = '';
 		selectedSiteId = null;
 		vendorStatusExpanded = false;
 		vendorSites = [];
+		vendorLookupCompleted = false;
 		vendorActiveSuggestionIndex = -1;
 		queueVendorSuggestions();
 	};
@@ -874,6 +943,7 @@ let openHelpTopicId = '';
 		vendorActiveSuggestionIndex = -1;
 		userSearchedVendor = false;
 		vendorStatusExpanded = false;
+		vendorLookupCompleted = false;
 	};
 
 	const refreshShipToSearch = () => {
@@ -1002,9 +1072,7 @@ let openHelpTopicId = '';
 					`${site.id} ${site.name}`.toLowerCase().includes(query)
 			  )
 			: [];
-		filteredShipToSites = selectedTypes.length
-			? nameFiltered.filter((site) => selectedTypes.includes(site.type))
-			: nameFiltered;
+		filteredShipToSites = nameFiltered;
 	}
 
 	$: groupedVendorSites = groupSites(filteredVendorSites);
@@ -1092,9 +1160,31 @@ let openHelpTopicId = '';
 		}
 	};
 
+	/** @param {{ address?: string, address_line_1?: string, address_line_2?: string, address_line_3?: string }} site */
+	const getAddressLines = (site) => {
+		const lines = [
+			String(site.address_line_1 ?? '').trim(),
+			String(site.address_line_2 ?? '').trim(),
+			String(site.address_line_3 ?? '').trim()
+		].filter(Boolean);
+		if (lines.length > 0) return lines;
+
+		const fallback = String(site.address ?? '').trim();
+		return fallback ? [fallback] : [];
+	};
+
+	/** @param {{ city?: string, state?: string, zip?: string }} site */
+	const formatCityStateZip = (site) => {
+		const city = String(site.city ?? '').trim();
+		const state = String(site.state ?? '').trim();
+		const zip = String(site.zip ?? '').trim();
+		const locality = [city, state].filter(Boolean).join(', ');
+		return [locality, zip].filter(Boolean).join(' ');
+	};
+
 	/** @param {Site} site */
 	const formatAddressBlock = (site) =>
-		`${site.address}\n${site.city}, ${site.state} ${site.zip}`;
+		[...getAddressLines(site), formatCityStateZip(site)].filter(Boolean).join('\n');
 
 	/** @param {unknown} value */
 	const parseTypes = (value) => {
@@ -1114,16 +1204,24 @@ const typeIconKey = (value) => {
 	return '';
 };
 
-	/** @param {{ address: string, city: string, state: string, zip: string }} location */
+	/** @param {string} value */
+	const typeFilterLabel = (value) => {
+		const key = typeIconKey(value);
+		if (key === 'purchasing') return 'Legal Address';
+		if (key === 'payment') return 'Remit To';
+		return value;
+	};
+
+	/** @param {{ address?: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city?: string, state?: string, zip?: string }} location */
 	const formatAddressBlockFromParts = (location) =>
-		`${location.address}\n${location.city}, ${location.state} ${location.zip}`;
+		[...getAddressLines(location), formatCityStateZip(location)].filter(Boolean).join('\n');
 
 	/** @param {Site[]} sites */
 	const groupSites = (sites) => {
 		/** @type {Map<string, GroupedSite>} */
 		const map = new Map();
 		for (const site of sites) {
-			const key = `${site.name}${site.address}|${site.city}|${site.state}|${site.zip}`;
+			const key = `${site.name}|${getAddressLines(site).join('|')}|${site.city}|${site.state}|${site.zip}`;
 			const existing = map.get(key);
 			const types = parseTypes(site.type);
 			if (existing) {
@@ -1142,6 +1240,9 @@ const typeIconKey = (value) => {
 				id: site.id,
 				name: site.name,
 				address: site.address,
+				address_line_1: site.address_line_1,
+				address_line_2: site.address_line_2,
+				address_line_3: site.address_line_3,
 				city: site.city,
 				state: site.state,
 				zip: site.zip,
@@ -1289,11 +1390,8 @@ const typeIconKey = (value) => {
 					disabled={vendorTabDisabled}
 					on:click={() => setActiveTab('vendor')}
 				>
-				<svg class="tab__icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-					<g fill="none" stroke="currentColor" stroke-width="1.5">
-						<path d="M2 7.5V22h20V7.5L12 2z" />
-						<path d="M6 16v6h6v-6zm6 0v6h6v-6zm-3-6v6h6v-6z" />
-					</g>
+				<svg class="tab__icon" xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
+					<path fill="currentColor" fill-rule="evenodd" d="M6 16a2.5 2.5 0 0 1 2.5-2.5h40a2.5 2.5 0 0 1 0 5h-3v12h24A1.5 1.5 0 0 1 71 32v29.5h.5a2.5 2.5 0 0 1 0 5h-37V58a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8.5h-14a2.5 2.5 0 0 1 0-5h3v-43h-3A2.5 2.5 0 0 1 6 16m13.5 4.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM25 23a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 25 23m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM17 31a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 17 31m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM33 31a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 33 31m-13.5 5.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM25 39a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 25 39m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM17 47a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 17 47m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM33 47a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 33 47m31-8a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zm-2.5 5.5A2.5 2.5 0 0 1 64 47v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5M64 55a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zM53.5 36.5A2.5 2.5 0 0 1 56 39v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5M56 47a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zm-2.5 5.5A2.5 2.5 0 0 1 56 55v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5" clip-rule="evenodd" />
 				</svg>
 					Supplier Address
 				</button>
@@ -1364,7 +1462,7 @@ const typeIconKey = (value) => {
 														on:change={() => toggleTypeSelection(type)}
 													/>
 													<span class="filter-option__dot" aria-hidden="true"></span>
-													<span>{type}</span>
+													<span>{typeFilterLabel(type)}</span>
 												</label>
 											{/each}
 										{/if}
@@ -1450,13 +1548,27 @@ const typeIconKey = (value) => {
 										</svg>
 									</button>
 								{/if}
-								<button class="search__submit" aria-label="Search" on:click={submitVendorSearch}>
+								<button class="search__submit" aria-label="Search" on:click={() => void submitVendorSearch()}>
 									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<circle cx="11" cy="11" r="7" />
 										<path d="M21 21l-4.35-4.35" />
 									</svg>
 								</button>
 							</div>
+							{#if showSupplierActionLink}
+								<a
+									class="search__external-link search__external-link--prominent"
+									href={supplierActionUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<span>{supplierActionLabel}</span>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+										<path d="M7 17L17 7"></path>
+										<path d="M9 7h8v8"></path>
+									</svg>
+								</a>
+							{/if}
 							{#if showVendorSuggestions}
 								<ul class="search__suggestions" role="listbox" aria-label="Vendor suggestions">
 									{#if vendorSuggestions.length === 0}
@@ -1543,13 +1655,18 @@ const typeIconKey = (value) => {
 			{#if !showHelpCard}
 			<div class="list" role="list">
 				{#if groupedVendorSites.length === 0}
-					<div class="list__empty">
-						{sitesLoading ? 'Loading locations…' : 'No results found'}
-					</div>
+					{#if sitesLoading}
+						<div class="list__empty">Loading locations…</div>
+					{:else if vendorLookupCompleted}
+						<div class="list__empty">No results found</div>
+					{:else}
+						<div class="list__empty"></div>
+					{/if}
 				{:else}
 					{#each groupedVendorSites as site}
 						<section
 							class="card"
+							class:card--do-not-use={vendorStatusSummary?.tone === 'red'}
 							class:selected={selectedSiteId === site.key}
 							role="button"
 							tabindex="0"
@@ -1597,8 +1714,12 @@ const typeIconKey = (value) => {
 							</div>
 							<div class="card__content">
 								<div class="card__text">
-									<div class="card__address">{site.address}</div>
-									<div class="card__address">{site.city}, {site.state} {site.zip}</div>
+									{#each getAddressLines(site) as addressLine}
+										<div class="card__address">{addressLine}</div>
+									{/each}
+									{#if formatCityStateZip(site)}
+										<div class="card__address">{formatCityStateZip(site)}</div>
+									{/if}
 								</div>
 							</div>
 							<span class="card__copy-icon" aria-hidden="true">
@@ -1635,32 +1756,6 @@ const typeIconKey = (value) => {
 							{/if}
 						</button>
 						<div class="search__actions">
-							<div class="search__filter-wrap" bind:this={filterWrap}>
-								<button class="search__filter" aria-label="Filter by type" on:click|stopPropagation={toggleTypeFilter}>
-									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<path d="M3 4h18l-7 8v6l-4 2v-8z" />
-									</svg>
-								</button>
-								{#if showTypeFilter}
-									<div class="search__filter-panel" role="listbox" aria-label="Filter by type">
-										{#if resolvedTypeOptions.length === 0}
-											<div class="search__suggestion--empty">No type options available</div>
-										{:else}
-											{#each resolvedTypeOptions as type}
-												<label class="filter-option">
-													<input
-														type="checkbox"
-														checked={selectedTypes.includes(type)}
-														on:change={() => toggleTypeSelection(type)}
-													/>
-													<span class="filter-option__dot" aria-hidden="true"></span>
-													<span>{type}</span>
-												</label>
-											{/each}
-										{/if}
-									</div>
-								{/if}
-							</div>
 							<div class="search__help-wrap" bind:this={helpButtonWrap}>
 								<button
 									class="search__help"
@@ -1729,16 +1824,6 @@ const typeIconKey = (value) => {
 								</svg>
 							</button>
 						</div>
-						{#if selectedTypes.length}
-							<div class="filter-chips" aria-label="Active type filters">
-								{#each selectedTypes as type}
-									<button class="filter-chip" type="button" on:click={() => clearTypeSelection(type)}>
-										<span>{type}</span>
-										<span aria-hidden="true">&times;</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
 					{/if}
 				</div>
 
@@ -1799,8 +1884,12 @@ const typeIconKey = (value) => {
 							</div>
 							<div class="card__content">
 								<div class="card__text">
-									<div class="card__address">{site.address}</div>
-									<div class="card__address">{site.city}, {site.state} {site.zip}</div>
+									{#each getAddressLines(site) as addressLine}
+										<div class="card__address">{addressLine}</div>
+									{/each}
+									{#if formatCityStateZip(site)}
+										<div class="card__address">{formatCityStateZip(site)}</div>
+									{/if}
 								</div>
 							</div>
 							<span class="card__copy-icon" aria-hidden="true">
