@@ -1,15 +1,27 @@
 import { json } from '@sveltejs/kit';
-import { filterVendorSites } from '$lib/server/vendor-sites.js';
-import { getCachedVendorSites } from '$lib/server/vendor-sites-cache.js';
+import { fetchVendorSitesFromApigeeWithFallback } from '$lib/server/apigee-suppliers.js';
 
 export const GET = async ({ url }) => {
-	const payload = await getCachedVendorSites();
 	const vendorId = url.searchParams.get('vendor_id');
 	const vendorName = url.searchParams.get('vendor_name');
-	const filteredSites =
-		(vendorId && vendorId.trim()) || (vendorName && vendorName.trim())
-			? filterVendorSites(payload.sites, { vendorId, vendorName })
-			: payload.sites;
 
-	return json({ ...payload, sites: filteredSites });
+	if (!String(vendorId ?? '').trim() && !String(vendorName ?? '').trim()) {
+		return json({ source: 'none', sites: [], loadedAt: Date.now() });
+	}
+
+	try {
+		const payload = await fetchVendorSitesFromApigeeWithFallback({ vendorId, vendorName });
+		return json(payload);
+	} catch (err) {
+		console.error('Vendor sites API error', err);
+		return json(
+			{
+				source: 'error',
+				error: 'supplier_lookup_failed',
+				sites: [],
+				loadedAt: Date.now()
+			},
+			{ status: 502 }
+		);
+	}
 };
