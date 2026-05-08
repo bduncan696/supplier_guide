@@ -836,7 +836,7 @@ let openHelpTopicId = '';
 	$: {
 		if (resolvedSupplierId) {
 			supplierActionUrl = supplierRegistrationUrl;
-			supplierActionLabel = `Open supplier registration for ${resolvedSupplierName}`;
+			supplierActionLabel = `Request an Address Update for ${resolvedSupplierName}`;
 		} else {
 			supplierActionUrl = SUPPLIER_INTELLIGENCE_REQUEST_URL;
 			supplierActionLabel = 'Go directly to Supplier Intelligence';
@@ -1628,6 +1628,7 @@ const typeIconKey = (value) => {
 										></span>
 										<span>{vendorStatusSummary.status}</span>
 									</span>
+									<span class="vendor-status-card__label_details">Supplier Status Details</span>
 									<span
 										class="vendor-status-card__chevron"
 										class:vendor-status-card__chevron--collapsed={!vendorStatusExpanded}

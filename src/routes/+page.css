@@ -533,7 +533,7 @@
 	border: none;
 	background: #fff;
 	display: flex;
-	justify-content: space-between;
+	gap: 0.35rem;
 	align-items: center;
 	padding: 0.55rem 0.7rem;
 	font-weight: 700;
@@ -813,6 +813,13 @@
 	font-weight: 700;
 	margin-bottom: 0.5rem;
 	font-size: 0.9rem;
+}
+
+.vendor-status-card__label_details {
+	margin-left: auto;
+	color: var(--pc-text);
+	font-weight: 300;
+	font-size: 0.75rem;
 }
 
 .card__chip-row {
