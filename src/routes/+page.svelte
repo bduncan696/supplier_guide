@@ -16,7 +16,7 @@
 		
 	]);
 
-	/** @typedef {{ type: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
+	/** @typedef {{ type?: string, address_purpose?: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
 	/** @typedef {{ key: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[] }} GroupedSite */
 	/** @typedef {{ id: string, name: string, city: string, state: string }} VendorSuggestion */
 
@@ -220,7 +220,9 @@ let openHelpTopicId = '';
 			}
 			const allSitesForTab = tab === 'vendor' ? vendorSites : shipToSites;
 			typeOptions = Array.from(
-				new Set(allSitesForTab.flatMap((/** @type {Site} */ site) => parseTypes(site.type)))
+				new Set(
+					allSitesForTab.flatMap((/** @type {Site} */ site) => parseTypes(getSitePurpose(site)))
+				)
 			);
 		} catch (err) {
 			console.warn('Unable to load sites', err);
@@ -766,6 +768,9 @@ let openHelpTopicId = '';
 				return;
 			}
 			vendorActiveSuggestionIndex = vendorSuggestions.length > 0 ? 0 : -1;
+			if (vendorName.trim() === trimmedQuery && !String(selectedVendorId ?? '').trim()) {
+				vendorLookupCompleted = true;
+			}
 		} catch (err) {
 			if (!(err instanceof DOMException && err.name === 'AbortError')) {
 				console.warn('Unable to search vendors', err);
@@ -839,7 +844,8 @@ let openHelpTopicId = '';
 			supplierActionLabel = `Request an Address Update for ${resolvedSupplierName}`;
 		} else {
 			supplierActionUrl = SUPPLIER_INTELLIGENCE_REQUEST_URL;
-			supplierActionLabel = 'Go directly to Supplier Intelligence';
+			supplierActionLabel =
+				"If you don't see the vendor you need please verify they have an active registration, or click here to upload their W9 for bidding.";
 		}
 	}
 
@@ -913,6 +919,10 @@ let openHelpTopicId = '';
 	const handleVendorInput = (event) => {
 		const target = /** @type {HTMLInputElement | null} */ (event.currentTarget);
 		const nextValue = target?.value ?? '';
+		if (vendorSearchAbortController) {
+			vendorSearchAbortController.abort();
+			vendorSearchAbortController = null;
+		}
 		vendorName = nextValue;
 		userSearchedVendor = true;
 		selectedVendorId = null;
@@ -949,6 +959,14 @@ let openHelpTopicId = '';
 	const refreshShipToSearch = () => {
 		shipToName = '';
 		userSearchedShipTo = false;
+	};
+
+	/** @param {KeyboardEvent} event */
+	const handleShipToInputKeydown = (event) => {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			void loadSites('shipTo');
+		}
 	};
 
 	const clearSearchStateForDetailView = () => {
@@ -1061,7 +1079,9 @@ let openHelpTopicId = '';
 
 	$: {
 		filteredVendorSites = selectedTypes.length
-			? vendorSites.filter((site) => selectedTypes.includes(site.type))
+			? vendorSites.filter((site) =>
+					parseTypes(getSitePurpose(site)).some((value) => selectedTypes.includes(value))
+			  )
 			: vendorSites;
 	}
 
@@ -1080,7 +1100,7 @@ let openHelpTopicId = '';
 	$: {
 		const sitesForTab = activeTab === 'vendor' ? vendorSites : shipToSites;
 		const derivedTypes = Array.from(
-			new Set(sitesForTab.flatMap((/** @type {Site} */ site) => parseTypes(site.type)))
+			new Set(sitesForTab.flatMap((/** @type {Site} */ site) => parseTypes(getSitePurpose(site))))
 		);
 		resolvedTypeOptions = typeOptions.length ? typeOptions : derivedTypes;
 	}
@@ -1186,6 +1206,9 @@ let openHelpTopicId = '';
 	const formatAddressBlock = (site) =>
 		[...getAddressLines(site), formatCityStateZip(site)].filter(Boolean).join('\n');
 
+	/** @param {Site} site */
+	const getSitePurpose = (site) => String(site.address_purpose ?? site.type ?? '').trim();
+
 	/** @param {unknown} value */
 	const parseTypes = (value) => {
 		if (typeof value !== 'string') return [];
@@ -1223,7 +1246,7 @@ const typeIconKey = (value) => {
 		for (const site of sites) {
 			const key = `${site.name}|${getAddressLines(site).join('|')}|${site.city}|${site.state}|${site.zip}`;
 			const existing = map.get(key);
-			const types = parseTypes(site.type);
+			const types = parseTypes(getSitePurpose(site));
 			if (existing) {
 				for (const entry of types) {
 					if (!existing.types.includes(entry)) {
@@ -1807,8 +1830,9 @@ const typeIconKey = (value) => {
 							<input
 								type="text"
 								bind:value={shipToName}
-								placeholder="enter Project Name or ID"
-								aria-label="Project Name or ID"
+								placeholder="Enter Project Name or Number"
+								aria-label="Project Name or Number"
+								on:keydown={handleShipToInputKeydown}
 							/>
 							{#if shipToName.trim().length}
 								<button class="search__refresh" aria-label="Clear" on:click={refreshShipToSearch}>
