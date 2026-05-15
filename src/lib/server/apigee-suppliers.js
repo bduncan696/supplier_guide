@@ -3,7 +3,7 @@ import { normalizeForMatch } from './vendor-sites.js';
 
 /** @typedef {'nonprod' | 'development' | 'dev' | 'test' | 'prod' | 'production'} ApigeeEnvKey */
 /** @typedef {{ id: string, name: string, city: string, state: string }} VendorSuggestion */
-/** @typedef {{ type: string, id: string, name: string, address: string, city: string, state: string, zip: string, country: string, status: string, status_details: string }} VendorSite */
+/** @typedef {{ address_purpose: string, id: string, name: string, address: string, city: string, state: string, zip: string, country: string, status: string, status_details: string }} VendorSite */
 /** @typedef {{ vendorId?: string | null, vendorName?: string | null }} VendorFilters */
 /** @typedef {{ query: string, suggestions: VendorSuggestion[], exactMatch: VendorSuggestion | null, loadedAt: number }} VendorSearchSnapshot */
 /** @typedef {{ sites: VendorSite[], loadedAt: number }} VendorSitesSnapshot */
@@ -251,7 +251,7 @@ const mapSupplierToVendorSites = (supplier) => {
 	const supplierSites = Array.isArray(supplier?.supplier_sites) ? supplier.supplier_sites : [];
 
 	return supplierSites.map((/** @type {any} */ site) => ({
-		type: asString(site?.address_purpose) || supplierType,
+		address_purpose: asString(site?.address_purpose) || supplierType,
 		id: supplierId,
 		name: supplierName,
 		address: joinAddressLines(site),
