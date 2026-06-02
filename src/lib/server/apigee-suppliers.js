@@ -1,37 +1,20 @@
 import { env } from '$env/dynamic/private';
+import { apigeeGet, asString } from './apigee-client.js';
 import { normalizeForMatch } from './vendor-sites.js';
 
-/** @typedef {'nonprod' | 'development' | 'dev' | 'test' | 'prod' | 'production'} ApigeeEnvKey */
+/** @typedef {{ supplier_number?: unknown, supplier_name?: unknown, supplier_type?: unknown, supplier_status?: unknown, supplier_status_details?: unknown }} SupplierHeader */
+/** @typedef {{ address_line_1?: unknown, address_line_2?: unknown, address_line_3?: unknown, address_purpose?: unknown, city?: unknown, state?: unknown, province?: unknown, postal_code?: unknown, country?: unknown }} SupplierSiteRow */
+/** @typedef {{ supplier_header?: SupplierHeader, supplier_sites?: SupplierSiteRow[] }} SupplierRecord */
+/** @typedef {{ supplier_number?: unknown, supplier_name?: unknown }} SupplierSearchRow */
 /** @typedef {{ id: string, name: string, city: string, state: string }} VendorSuggestion */
 /** @typedef {{ address_purpose: string, id: string, name: string, address: string, city: string, state: string, zip: string, country: string, status: string, status_details: string }} VendorSite */
 /** @typedef {{ vendorId?: string | null, vendorName?: string | null }} VendorFilters */
 /** @typedef {{ query: string, suggestions: VendorSuggestion[], exactMatch: VendorSuggestion | null, loadedAt: number }} VendorSearchSnapshot */
 /** @typedef {{ sites: VendorSite[], loadedAt: number }} VendorSitesSnapshot */
-/** @typedef {{ retryOnUnauthorized?: boolean }} GetOptions */
-/** @typedef {Record<string, string | number | boolean | null | undefined>} QueryParams */
-
-const DEFAULT_NONPROD_BASE_URL = 'https://api-nonprod.burnsmcd.app/epc-tools-external';
-const DEFAULT_TIMEOUT_MS = 10000;
-const DEFAULT_TOKEN_REFRESH_WINDOW_MS = 30000;
-const DEFAULT_RETRY_COUNT = 1;
-const DEFAULT_RETRY_DELAY_MS = 250;
 const DEFAULT_SEARCH_LIMIT = 20;
 const MAX_SEARCH_LIMIT = 50;
 const DEFAULT_VENDOR_MATCH_LIMIT = 20;
 const MAX_VENDOR_MATCH_LIMIT = 50;
-
-/** @type {Record<ApigeeEnvKey, string>} */
-const APIGEE_ENV_CONFIG = {
-	nonprod: DEFAULT_NONPROD_BASE_URL,
-	development: DEFAULT_NONPROD_BASE_URL,
-	dev: DEFAULT_NONPROD_BASE_URL,
-	test: DEFAULT_NONPROD_BASE_URL,
-	prod: DEFAULT_NONPROD_BASE_URL,
-	production: DEFAULT_NONPROD_BASE_URL
-};
-
-/** @type {{ token: string, expiresAt: number } | null} */
-let tokenCache = null;
 
 /** @type {Map<string, VendorSitesSnapshot>} */
 const vendorSitesFallbackCache = new Map();
@@ -52,12 +35,6 @@ const toPositiveInt = (value, fallback) => {
 	return Math.floor(parsed);
 };
 
-const getTimeoutMs = () => toPositiveInt(env.APIGEE_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
-const getTokenRefreshWindowMs = () =>
-	toPositiveInt(env.APIGEE_TOKEN_REFRESH_WINDOW_MS, DEFAULT_TOKEN_REFRESH_WINDOW_MS);
-const getRetryCount = () => toPositiveInt(env.APIGEE_RETRY_COUNT, DEFAULT_RETRY_COUNT);
-const getRetryDelayMs = () => toPositiveInt(env.APIGEE_RETRY_DELAY_MS, DEFAULT_RETRY_DELAY_MS);
-
 /** @param {unknown} value */
 const getSearchLimit = (value) => {
 	const fallback = toPositiveInt(env.APIGEE_SEARCH_LIMIT, DEFAULT_SEARCH_LIMIT);
@@ -71,174 +48,14 @@ const getVendorMatchLimit = () => {
 	return Math.max(1, Math.min(MAX_VENDOR_MATCH_LIMIT, fallback));
 };
 
-/** @param {number} ms */
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const resolveBaseUrl = () => {
-	const explicit = String(env.APIGEE_BASE_URL ?? '').trim();
-	if (explicit) return explicit.replace(/\/$/, '');
-
-	const rawEnv = String(env.APIGEE_ENV ?? 'nonprod').trim().toLowerCase();
-	const envKey = /** @type {ApigeeEnvKey} */ (
-		rawEnv in APIGEE_ENV_CONFIG ? rawEnv : 'nonprod'
-	);
-	return APIGEE_ENV_CONFIG[envKey].replace(/\/$/, '');
-};
-
-const resolveCredentials = () => {
-	const key = String(env.APIGEE_CONSUMER_KEY ?? env.APIGEE_CLIENT_ID ?? '').trim();
-	const secret = String(env.APIGEE_CONSUMER_SECRET ?? env.APIGEE_CLIENT_SECRET ?? '').trim();
-	if (!key || !secret) {
-		throw new Error('Missing APIGEE credentials. Set APIGEE_CONSUMER_KEY and APIGEE_CONSUMER_SECRET.');
-	}
-	return { key, secret };
-};
-
-/** @param {string} value */
-const toBase64 = (value) => {
-	if (typeof btoa === 'function') return btoa(value);
-	const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-	let output = '';
-	for (let i = 0; i < value.length; i += 3) {
-		const c1 = value.charCodeAt(i);
-		const c2 = i + 1 < value.length ? value.charCodeAt(i + 1) : NaN;
-		const c3 = i + 2 < value.length ? value.charCodeAt(i + 2) : NaN;
-		const n = (c1 << 16) | ((Number.isNaN(c2) ? 0 : c2) << 8) | (Number.isNaN(c3) ? 0 : c3);
-		output += alphabet[(n >> 18) & 63];
-		output += alphabet[(n >> 12) & 63];
-		output += Number.isNaN(c2) ? '=' : alphabet[(n >> 6) & 63];
-		output += Number.isNaN(c3) ? '=' : alphabet[n & 63];
-	}
-	return output;
-};
-
-/** @param {RequestInfo | URL} input
- * @param {RequestInit} [init]
- */
-const withTimeout = async (input, init = {}) => {
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), getTimeoutMs());
-	try {
-		return await fetch(input, { ...init, signal: controller.signal });
-	} finally {
-		clearTimeout(timeout);
-	}
-};
-
-const requestToken = async () => {
-	const { key, secret } = resolveCredentials();
-	const baseUrl = resolveBaseUrl();
-	const basic = toBase64(`${key}:${secret}`);
-	const body = new URLSearchParams({ grant_type: 'client_credentials' });
-
-	const response = await withTimeout(`${baseUrl}/token`, {
-		method: 'POST',
-		headers: {
-			Authorization: `Basic ${basic}`,
-			'Content-Type': 'application/x-www-form-urlencoded',
-			Accept: 'application/json'
-		},
-		body: body.toString()
-	});
-
-	if (!response.ok) {
-		const text = await response.text();
-		throw new Error(`APIGEE token request failed (${response.status}): ${text}`);
-	}
-
-	const payload = await response.json();
-	const accessToken = String(payload?.access_token ?? '').trim();
-	const expiresInSec = Number(payload?.expires_in ?? 1800);
-	if (!accessToken) throw new Error('APIGEE token response missing access_token');
-
-	const refreshWindowMs = getTokenRefreshWindowMs();
-	const expiresAt = Date.now() + Math.max(1, expiresInSec) * 1000 - refreshWindowMs;
-	tokenCache = { token: accessToken, expiresAt };
-	return tokenCache.token;
-};
-
-const getAccessToken = async () => {
-	if (tokenCache && tokenCache.expiresAt > Date.now()) {
-		return tokenCache.token;
-	}
-	return requestToken();
-};
-
-/** @param {Response} response */
-const parseApigeeError = async (response) => {
-	const text = await response.text();
-	if (!text) return `${response.status}`;
-	try {
-		const payload = JSON.parse(text);
-		const code = String(payload?.code ?? '').trim();
-		const message = String(payload?.message ?? '').trim();
-		if (code || message) return [code, message].filter(Boolean).join(': ');
-		return text;
-	} catch {
-		return text;
-	}
-};
-
-/** @param {string} path
- * @param {QueryParams | null} [searchParams]
- * @param {GetOptions} [options]
- */
-const apigeeGet = async (path, searchParams = null, options = {}) => {
-	const { retryOnUnauthorized = true } = options;
-	const url = new URL(`${resolveBaseUrl()}${path}`);
-	if (searchParams) {
-		for (const [key, value] of Object.entries(searchParams)) {
-			if (value === undefined || value === null) continue;
-			const str = String(value).trim();
-			if (str) url.searchParams.set(key, str);
-		}
-	}
-
-	let attemptsRemaining = getRetryCount() + 1;
-	let attemptedUnauthorizedRefresh = false;
-
-	while (attemptsRemaining > 0) {
-		attemptsRemaining -= 1;
-		const token = await getAccessToken();
-		const response = await withTimeout(url.toString(), {
-			method: 'GET',
-			headers: {
-				Authorization: `Bearer ${token}`,
-				Accept: 'application/json'
-			}
-		});
-
-		if (response.ok) return response.json();
-
-		if (response.status === 401 && retryOnUnauthorized && !attemptedUnauthorizedRefresh) {
-			attemptedUnauthorizedRefresh = true;
-			tokenCache = null;
-			continue;
-		}
-
-		if ((response.status >= 500 || response.status === 429) && attemptsRemaining > 0) {
-			await sleep(getRetryDelayMs());
-			continue;
-		}
-
-		const details = await parseApigeeError(response);
-		throw new Error(`APIGEE GET ${path} failed (${response.status}): ${details}`);
-	}
-
-	throw new Error(`APIGEE GET ${path} failed after retry attempts`);
-};
-
-/** @param {unknown} value */
-const asString = (value) => String(value ?? '').trim();
-
-/** @param {any} site */
+/** @param {SupplierSiteRow | null | undefined} site */
 const joinAddressLines = (site) =>
 	[site?.address_line_1, site?.address_line_2, site?.address_line_3]
 		.map((part) => asString(part))
 		.filter(Boolean)
 		.join(' ');
 
-/** @param {any} supplier
+/** @param {SupplierRecord | null | undefined} supplier
  * @returns {VendorSite[]}
  */
 const mapSupplierToVendorSites = (supplier) => {
@@ -250,7 +67,7 @@ const mapSupplierToVendorSites = (supplier) => {
 	const supplierStatusDetails = asString(header?.supplier_status_details);
 	const supplierSites = Array.isArray(supplier?.supplier_sites) ? supplier.supplier_sites : [];
 
-	return supplierSites.map((/** @type {any} */ site) => ({
+	return supplierSites.map((site) => ({
 		address_purpose: asString(site?.address_purpose) || supplierType,
 		id: supplierId,
 		name: supplierName,
@@ -264,7 +81,7 @@ const mapSupplierToVendorSites = (supplier) => {
 	}));
 };
 
-/** @param {any[]} rows */
+/** @param {SupplierSearchRow[]} rows */
 const dedupeBySupplierNumber = (rows) => {
 	const seen = new Set();
 	const deduped = [];

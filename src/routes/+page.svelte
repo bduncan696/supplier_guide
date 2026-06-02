@@ -3,22 +3,45 @@
 	import './+page.css';
 	import { helpTopics } from '$lib/help-topics';
 	import { marked } from 'marked';
-	import stackedLogo from '$lib/assets/BurnsMcDonnell_Stacked_RGB_R_high.png';
+	import {
+		buildVendorStatusSummary,
+		deriveTypeOptions,
+		formatAddressBlockFromParts,
+		formatCityStateZip,
+		getAddressLines,
+		getSitePurpose,
+		groupSites,
+		parseTypes,
+		typeFilterLabel,
+		typeIconKey
+	} from '$lib/site-display.js';
+	import {
+		buildSupplierActionState,
+		hasVendorSearchSeed,
+		VENDOR_SEARCH_DEBOUNCE_MS,
+		VENDOR_SUGGESTION_LIMIT
+	} from '$lib/vendor-search.js';
+	import {
+		asString,
+		buildVendorAppMessage,
+		COMMITMENT_ENDPOINTS,
+		debugProcore,
+		DETAIL_VIEWS,
+		extractContext,
+		extractProjectName,
+		extractVendorCompany,
+		extractView,
+		hasRequiredProcoreContext,
+		PROCORE_ALLOWED_ORIGINS,
+		PROCORE_PROXY_ENDPOINT
+	} from '$lib/procore-panel.js';
 	import horizontalLogo from '$lib/assets/BurnsMcDonnell_Horiz_Small_RGB_R_high.png';
-
-
-	const allowedOrigins = new Set([
-		'http://api.procore.com',
-		'https://api.procore.com',
-		'https://app.procore.com',
-		'https://us01.procore.com',
-		'https://us02.procore.com'
-		
-	]);
 
 	/** @typedef {{ type?: string, address_purpose?: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
 	/** @typedef {{ key: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[] }} GroupedSite */
 	/** @typedef {{ id: string, name: string, city: string, state: string }} VendorSuggestion */
+	/** @typedef {{ authentication?: { authenticate?: (options: { url: string, onSuccess: (payload: unknown) => void, onFailure: (error: unknown) => void }) => void } }} ProcoreIframeContext */
+	/** @typedef {{ initialize?: () => ProcoreIframeContext | null }} ProcoreIframeHelpers */
 
 	let vendorName = '';
 	let shipToName = '';
@@ -62,9 +85,9 @@
 	let vendorLookupInFlight = false;
 	/** @type {string | null} */
 	let lastVendorLookupKey = null;
-	/** @type {any} */
+	/** @type {ProcoreIframeHelpers | null} */
 	let iframeHelpers = null;
-	/** @type {any} */
+	/** @type {ProcoreIframeContext | null} */
 	let iframeContext = null;
 	/** @type {string | null} */
 	let authHandle = null;
@@ -95,66 +118,12 @@
 	let selectedVendorName = null;
 	/** @type {HTMLDivElement | null} */
 	let vendorAutocompleteWrap = null;
-	let resolvedSupplierId = '';
-	let resolvedSupplierName = '';
-	let supplierRegistrationUrl = '';
-	let supplierActionUrl = '';
-	let supplierActionLabel = '';
-	let showSupplierActionLink = false;
-
-	const VENDOR_SUGGESTION_LIMIT = 5;
-	const VENDOR_SEARCH_DEBOUNCE_MS = 300;
-	const SUPPLIER_INTELLIGENCE_REQUEST_URL =
-		'https://burnsmcd.palantirfoundry.com/workspace/module/view/latest/ri.workshop.main.module.e074b65c-dfc2-40bd-abdc-5e5bbaba4846/requestsetup-1';
-	const SUPPLIER_REGISTRATION_BASE_URL =
-		'https://burnsmcd.palantirfoundry.com/workspace/module/edit/ri.workshop.main.module.e074b65c-dfc2-40bd-abdc-5e5bbaba4846/main-page?pageId=Registration';
+	let supplierActionState = buildSupplierActionState({});
 
 	const helpTopicsWithHtml = helpTopics.map((topic) => ({
 		...topic,
 		bodyHtml: marked.parse(topic.body)
 	}));
-
-	const PROCORE_PROXY_ENDPOINT = '/api/procore/commitment';
-	const DETAIL_VIEWS = new Set([
-		'commitments.purchase_order_contracts.detail',
-		'commitments.work_order_contracts.detail'
-	]);
-	const COMMITMENT_ENDPOINTS = {
-		'commitments.purchase_order_contracts.edit': 'purchase_order_contracts',
-		'commitments.work_order_contracts.edit': 'work_order_contracts'
-	};
-	/** @type {Record<string, number>} */
-	const STATUS_PRIORITY = {
-		do_not_use: 4,
-		caution: 3,
-		prospective: 2,
-		expired: 2,
-		registered: 1
-	};
-	const shouldDebugProcore = () => {
-		if (typeof window === 'undefined') return false;
-		try {
-			const params = new URLSearchParams(window.location.search);
-			return (
-				params.get('debug_procore') === '1' ||
-				window.localStorage?.getItem('debug_procore') === '1'
-			);
-		} catch {
-			return false;
-		}
-	};
-	/**
-	 * @param {string} label
-	 * @param {unknown | null} details
-	 */
-	const debugProcore = (label, details = null) => {
-		if (!shouldDebugProcore()) return;
-		if (details === null) {
-			console.info(`[procore-debug] ${label}`);
-			return;
-		}
-		console.info(`[procore-debug] ${label}`, details);
-	};
 
 	/** @type {Site[]} */
 	let vendorSites = [];
@@ -167,7 +136,7 @@
 	/** @type {{ status: string, details: string, tone: 'red' | 'yellow' | 'gray' | 'green' } | null} */
 	let vendorStatusSummary = null;
 
-let openHelpTopicId = '';
+	let openHelpTopicId = '';
 
 	/**
 	 * @param {'vendor' | 'shipTo'} tab
@@ -219,11 +188,7 @@ let openHelpTopicId = '';
 				shipToSites = sites;
 			}
 			const allSitesForTab = tab === 'vendor' ? vendorSites : shipToSites;
-			typeOptions = Array.from(
-				new Set(
-					allSitesForTab.flatMap((/** @type {Site} */ site) => parseTypes(getSitePurpose(site)))
-				)
-			);
+			typeOptions = deriveTypeOptions(allSitesForTab);
 		} catch (err) {
 			console.warn('Unable to load sites', err);
 			if (tab === 'vendor') {
@@ -232,27 +197,6 @@ let openHelpTopicId = '';
 		} finally {
 			sitesLoading = false;
 		}
-	};
-
-	/** @param {unknown} data */
-	const extractContext = (data) => {
-		const candidates = [
-			// Typical Procore shape
-			/** @type {any} */ (data)?.context,
-			// Sometimes context is nested under payload
-			/** @type {any} */ (data)?.payload?.context,
-			// Fallback: payload might directly be the context
-			/** @type {any} */ (data)?.payload,
-			// Occasionally under data.context
-			/** @type {any} */ (data)?.data?.context
-		];
-
-		for (const ctx of candidates) {
-			if (ctx && typeof ctx === 'object' && ('company_id' in ctx || 'project_id' in ctx || 'id' in ctx || 'view' in ctx)) {
-				return ctx;
-			}
-		}
-		return null;
 	};
 
 	/** @param {string} handle */
@@ -301,8 +245,11 @@ let openHelpTopicId = '';
 	};
 	const loadIframeHelpers = async () => {
 		if (iframeHelpers) return iframeHelpers;
-		// @ts-ignore - remote module has no local typings.
-		const module = await import('https://cdn.skypack.dev/@flexbase-eng/procore-iframe-helpers');
+		// @ts-ignore - remote URL imports are valid at runtime but unresolved by svelte-check.
+		const importedModule = await import('https://cdn.skypack.dev/@flexbase-eng/procore-iframe-helpers');
+		const module = /** @type {{ default?: ProcoreIframeHelpers } & ProcoreIframeHelpers} */ (
+			importedModule
+		);
 		if (!module) return null;
 		iframeHelpers = module.default ?? module;
 		return iframeHelpers;
@@ -332,7 +279,6 @@ let openHelpTopicId = '';
 			});
 		} catch (err) {
 			console.warn('Unable to start Procore auth', err);
-			console.warn('Unable to start Procore auth. See console for details.');
 		}
 	};
 
@@ -365,48 +311,40 @@ let openHelpTopicId = '';
 		}
 	};
 
-	/** @param {unknown} value */
-	const asString = (value) => (value === null || value === undefined ? '' : String(value));
-
-	/** @param {any} payload */
-	const extractVendorCompany = (payload) => {
-		const vendorCompany =
-			payload?.vendor?.company ??
-			payload?.vendor_company ??
-			payload?.vendor?.company_name ??
-			payload?.vendor?.name ??
-			payload?.vendor?.vendor_name ??
-			payload?.invoice_contacts?.[0]?.name ??
-			payload?.invoice_contacts?.[0]?.vendor_name;
-		if (typeof vendorCompany === 'string') return vendorCompany;
-		if (vendorCompany && typeof vendorCompany === 'object') {
-			if (typeof vendorCompany.name === 'string') return vendorCompany.name;
-		}
-		return '';
+	/** @param {'commitments.purchase_order_contracts.edit' | 'commitments.work_order_contracts.edit'} viewKey */
+	const applyProcoreViewMode = (viewKey) => {
+		vendorTabDisabled = false;
+		setActiveTab('vendor');
+		shipToTabLabel =
+			viewKey === 'commitments.purchase_order_contracts.edit'
+				? 'Ship To Address'
+				: 'Project Address';
+		shipToTabIsShipTo = viewKey === 'commitments.purchase_order_contracts.edit';
 	};
 
-	/** @param {string} value */
-	const normalizeProjectName = (value) => value.replace(/\s*-\s*/, ' ').trim();
-
-	/** @param {any} payload */
-	const extractProjectName = (payload) => {
-		const projectName = payload?.project?.name ?? payload?.project_name;
-		if (typeof projectName === 'string') return normalizeProjectName(projectName);
-		if (projectName && typeof projectName === 'object') {
-			if (typeof projectName.name === 'string') return normalizeProjectName(projectName.name);
+	/** @param {unknown} payload */
+	const applyProcorePayloadToSearchState = (payload) => {
+		const vendorCompany = extractVendorCompany(payload);
+		if (vendorCompany && !userSearchedVendor) {
+			debugProcore('Vendor company extracted from Procore payload', { vendorCompany });
+			vendorName = vendorCompany;
+			selectedVendorId = null;
+			selectedVendorName = null;
+			vendorSites = [];
+			vendorSuggestions = [];
+			showVendorSuggestions = false;
+			vendorActiveSuggestionIndex = -1;
+			userSearchedVendor = false;
+			void fetchVendorSuggestions(vendorCompany);
 		}
-		return '';
-	};
 
-	/** @param {unknown} data */
-	const extractView = (data) => {
-		const fromContext = extractContext(data)?.view;
-		if (typeof fromContext === 'string') return fromContext;
-		const fromPayload = /** @type {any} */ (data)?.payload?.view;
-		if (typeof fromPayload === 'string') return fromPayload;
-		const directView = /** @type {any} */ (data)?.view;
-		if (typeof directView === 'string') return directView;
-		return null;
+		const projectName = extractProjectName(payload);
+		if (projectName && !userSearchedShipTo) {
+			debugProcore('Project name extracted from Procore payload', { projectName });
+			shipToName = projectName;
+			userSearchedShipTo = false;
+			void loadSites('shipTo', false);
+		}
 	};
 
 	/** @param {unknown} data */
@@ -430,18 +368,7 @@ let openHelpTopicId = '';
 			debugProcore('Skipping requestVendorCompany: no endpoint mapped for view', { viewKey });
 			return;
 		}
-		if (viewKey === 'commitments.purchase_order_contracts.edit') {
-			vendorTabDisabled = false;
-			setActiveTab('vendor');
-			shipToTabLabel = 'Ship To Address';
-			shipToTabIsShipTo = true;
-		}
-		if (viewKey === 'commitments.work_order_contracts.edit') {
-			vendorTabDisabled = false;
-			setActiveTab('vendor');
-			shipToTabLabel = 'Project Address';
-			shipToTabIsShipTo = false;
-		}
+		applyProcoreViewMode(viewKey);
 		if (!context?.id || !context?.project_id || !context?.company_id) {
 			debugProcore('Skipping requestVendorCompany: incomplete context ids', {
 				id: context?.id,
@@ -509,67 +436,13 @@ let openHelpTopicId = '';
 				lastVendorLookupKey = null;
 				throw new Error(`Procore API request failed with status ${response.status}`);
 			}
-			if (viewKey === 'commitments.purchase_order_contracts.edit') {
-				const vendorCompany = extractVendorCompany(payload);
-				if (vendorCompany && !userSearchedVendor) {
-					debugProcore('Vendor company extracted from Procore payload', { vendorCompany });
-					vendorName = vendorCompany;
-					selectedVendorId = null;
-					selectedVendorName = null;
-					vendorSites = [];
-					vendorSuggestions = [];
-					showVendorSuggestions = false;
-					vendorActiveSuggestionIndex = -1;
-					userSearchedVendor = false;
-					void fetchVendorSuggestions(vendorCompany);
-				}
-				const projectName = extractProjectName(payload);
-				if (projectName && !userSearchedShipTo) {
-					debugProcore('Project name extracted from Procore payload', { projectName });
-					shipToName = projectName;
-					userSearchedShipTo = false;
-					void loadSites('shipTo', false);
-				}
-			}
-			if (viewKey === 'commitments.work_order_contracts.edit') {
-				const vendorCompany = extractVendorCompany(payload);
-				if (vendorCompany && !userSearchedVendor) {
-					debugProcore('Vendor company extracted from Procore payload', { vendorCompany });
-					vendorName = vendorCompany;
-					selectedVendorId = null;
-					selectedVendorName = null;
-					vendorSites = [];
-					vendorSuggestions = [];
-					showVendorSuggestions = false;
-					vendorActiveSuggestionIndex = -1;
-					userSearchedVendor = false;
-					void fetchVendorSuggestions(vendorCompany);
-				}
-				const projectName = extractProjectName(payload);
-				if (projectName && !userSearchedShipTo) {
-					debugProcore('Project name extracted from Procore payload', { projectName });
-					shipToName = projectName;
-					userSearchedShipTo = false;
-					void loadSites('shipTo', false);
-				}
-			}
+			applyProcorePayloadToSearchState(payload);
 		} catch (err) {
 			console.warn('Unable to fetch vendor company from Procore', err);
 			lastVendorLookupKey = null;
 		} finally {
 			vendorLookupInFlight = false;
 		}
-	};
-
-	/** @param {unknown} data */
-	const hasRequiredContext = (data) => {
-		const context = extractContext(data);
-		return Boolean(
-			context &&
-			context.company_id !== undefined &&
-			context.project_id !== undefined &&
-			context.id !== undefined
-		);
 	};
 
 	/** @param {MessageEvent} event */
@@ -581,11 +454,11 @@ let openHelpTopicId = '';
 		debugProcore('message event received', {
 			origin: event.origin,
 			type: eventType,
-			hasContext: hasRequiredContext(event.data),
+			hasContext: hasRequiredProcoreContext(event.data),
 			view: extractView(event.data)
 		});
 
-		if (!allowedOrigins.has(event.origin)) {
+		if (!PROCORE_ALLOWED_ORIGINS.has(event.origin)) {
 			console.warn('Blocked message from unexpected origin', event.origin);
 			return; // guard against unexpected sources
 		}
@@ -609,13 +482,10 @@ let openHelpTopicId = '';
 					contextPoller = null;
 				}
 			}
-			if (type === 'vendor_app.parent_url') {
-				const payload = /** @type {{ payload?: { url?: string } }} */ (event.data).payload;
-				return;
-			}
+			if (type === 'vendor_app.parent_url') return;
 		}
 
-		if (!hasRequiredContext(event.data)) {
+		if (!hasRequiredProcoreContext(event.data)) {
 			debugProcore('Message ignored: missing required context identifiers');
 			return;
 		}
@@ -632,13 +502,7 @@ let openHelpTopicId = '';
 
 	const sendReadySignal = () => {
 		if (readySignaled || typeof window === 'undefined' || !window.parent) return;
-		window.parent.postMessage(
-			{
-				type: 'vendor_app.ready',
-				payload: { timestamp: Date.now(), source: 'vendor_app' }
-			},
-			'*'
-		);
+		window.parent.postMessage(buildVendorAppMessage('vendor_app.ready'), '*');
 		readySignaled = true;
 	};
 
@@ -646,25 +510,13 @@ let openHelpTopicId = '';
 		if (typeof window === 'undefined' || !window.parent) return;
 		const now = Date.now();
 		if (now - lastContextRequest < 250) return;
-		window.parent.postMessage(
-			{
-				type: 'vendor_app.request_context',
-				payload: { timestamp: Date.now(), source: 'vendor_app' }
-			},
-			'*'
-		);
+		window.parent.postMessage(buildVendorAppMessage('vendor_app.request_context'), '*');
 		lastContextRequest = now;
 	};
 
 	const requestParentUrl = () => {
 		if (requestedParentUrl || typeof window === 'undefined' || !window.parent) return;
-		window.parent.postMessage(
-			{
-				type: 'vendor_app.request_parent_url',
-				payload: { timestamp: Date.now(), source: 'vendor_app' }
-			},
-			'*'
-		);
+		window.parent.postMessage(buildVendorAppMessage('vendor_app.request_parent_url'), '*');
 		requestedParentUrl = true;
 	};
 
@@ -730,12 +582,6 @@ let openHelpTopicId = '';
 			vendorSearchAbortController = null;
 		}
 	});
-
-	/** @param {string} value */
-	const hasVendorSearchSeed = (value) => {
-		const firstToken = value.trim().split(/\s+/)[0] ?? '';
-		return firstToken.length > 0;
-	};
 
 	/** @param {string} query */
 	const fetchVendorSuggestions = async (query) => {
@@ -817,44 +663,13 @@ let openHelpTopicId = '';
 		void loadSites('vendor', !autoSelect);
 	};
 
-	$: resolvedSupplierId =
-		String(selectedVendorId ?? '').trim() || String(vendorSites[0]?.id ?? '').trim();
-
-	$: resolvedSupplierName =
-		String(selectedVendorName ?? '').trim() ||
-		String(vendorSites[0]?.name ?? '').trim() ||
-		vendorName.trim();
-
-	$: {
-		if (!resolvedSupplierId) {
-			supplierRegistrationUrl = SUPPLIER_INTELLIGENCE_REQUEST_URL;
-		} else {
-			const url = new URL(SUPPLIER_REGISTRATION_BASE_URL);
-			url.searchParams.set('activeSupplierId', resolvedSupplierId);
-			supplierRegistrationUrl = url.toString();
-		}
-	}
-
-	$: showSupplierActionLink =
-		Boolean(resolvedSupplierId) || (vendorLookupCompleted && vendorName.trim().length > 0);
-
-	$: {
-		if (resolvedSupplierId) {
-			supplierActionUrl = supplierRegistrationUrl;
-			supplierActionLabel = `Request an Address Update for ${resolvedSupplierName}`;
-		} else {
-			supplierActionUrl = SUPPLIER_INTELLIGENCE_REQUEST_URL;
-			supplierActionLabel =
-				"If you don't see the vendor you need please verify they have an active registration, or click here to upload their W9 for bidding.";
-		}
-	}
-
-	const getActiveVendorSuggestion = () => {
-		if (vendorActiveSuggestionIndex >= 0 && vendorActiveSuggestionIndex < vendorSuggestions.length) {
-			return vendorSuggestions[vendorActiveSuggestionIndex];
-		}
-		return vendorSuggestions[0];
-	};
+	$: supplierActionState = buildSupplierActionState({
+		selectedVendorId,
+		selectedVendorName,
+		vendorSites,
+		vendorName,
+		vendorLookupCompleted
+	});
 
 	const submitVendorSearch = async () => {
 		const query = vendorName.trim();
@@ -995,76 +810,6 @@ let openHelpTopicId = '';
 		vendorStatusExpanded = !vendorStatusExpanded;
 	};
 
-	/** @param {string} raw */
-	const normalizeStatusKey = (raw) =>
-		raw
-			.trim()
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '_')
-			.replace(/^_|_$/g, '');
-
-	/** @param {string} key */
-	const toStatusTone = (key) => {
-		if (key === 'do_not_use') return 'red';
-		if (key === 'caution') return 'yellow';
-		if (key === 'registered') return 'green';
-		return 'gray';
-	};
-
-	/** @param {string} key */
-	const toStatusLabel = (key) => {
-		if (key === 'do_not_use') return 'Do not use';
-		if (key === 'caution') return 'Caution';
-		if (key === 'prospective') return 'Prospective';
-		if (key === 'expired') return 'Expired';
-		if (key === 'registered') return 'Registered';
-		return 'Prospective';
-	};
-
-	/** @param {unknown} raw */
-	const formatStatusDisplay = (raw) =>
-		String(raw ?? '')
-			.trim()
-			.replace(/\s*,\s*/g, ' / ')
-			.replace(/\s*\/\s*/g, ' / ')
-			.replace(/\s+/g, ' ')
-			.trim();
-
-	/** @param {unknown} rawStatus */
-	const parseStatusInfo = (rawStatus) => {
-		const value = String(rawStatus ?? '').trim();
-		if (!value) return null;
-		const normalized = value.toLowerCase();
-		const display = formatStatusDisplay(value);
-
-		if (/do\s*not\s*use/.test(normalized)) {
-			return { key: 'do_not_use', label: display || 'Do not use' };
-		}
-		if (/\bcaution\b/.test(normalized)) {
-			return { key: 'caution', label: display || 'Caution' };
-		}
-		const hasProspective = /\bprospective\b/.test(normalized);
-		const hasExpired = /\bexpired\b/.test(normalized);
-		if (hasProspective && hasExpired) {
-			return { key: 'prospective', label: display || 'Prospective / Expired' };
-		}
-		if (hasProspective) {
-			return { key: 'prospective', label: display || 'Prospective' };
-		}
-		if (hasExpired) {
-			return { key: 'expired', label: display || 'Expired' };
-		}
-		if (/\bregistered\b/.test(normalized)) {
-			return { key: 'registered', label: display || 'Registered' };
-		}
-
-		const normalizedKey = normalizeStatusKey(value);
-		if ((STATUS_PRIORITY[normalizedKey] ?? 0) > 0) {
-			return { key: normalizedKey, label: display || toStatusLabel(normalizedKey) };
-		}
-		return null;
-	};
-
 	/** @param {string} type */
 	const toggleTypeSelection = (type) => {
 		selectedTypes = selectedTypes.includes(type)
@@ -1099,9 +844,7 @@ let openHelpTopicId = '';
 	$: groupedShipToSites = groupSites(filteredShipToSites);
 	$: {
 		const sitesForTab = activeTab === 'vendor' ? vendorSites : shipToSites;
-		const derivedTypes = Array.from(
-			new Set(sitesForTab.flatMap((/** @type {Site} */ site) => parseTypes(getSitePurpose(site))))
-		);
+		const derivedTypes = deriveTypeOptions(sitesForTab);
 		resolvedTypeOptions = typeOptions.length ? typeOptions : derivedTypes;
 	}
 
@@ -1122,37 +865,7 @@ let openHelpTopicId = '';
 		if (!query || activeTab !== 'vendor') {
 			vendorStatusSummary = null;
 		} else {
-			const rows = vendorSites;
-			let chosenKey = '';
-			let chosenLabel = '';
-			let chosenRank = 0;
-			for (const site of rows) {
-				const parsed = parseStatusInfo(site.status);
-				if (!parsed) continue;
-				const rank = STATUS_PRIORITY[parsed.key] ?? 0;
-				if (rank > chosenRank) {
-					chosenRank = rank;
-					chosenKey = parsed.key;
-					chosenLabel = parsed.label;
-				}
-			}
-			if (!chosenKey) {
-				vendorStatusSummary = null;
-			} else {
-				const details = Array.from(
-					new Set(
-						rows
-							.filter((site) => parseStatusInfo(site.status)?.key === chosenKey)
-							.map((site) => String(site.status_details ?? '').trim())
-							.filter(Boolean)
-					)
-				).join('\n');
-				vendorStatusSummary = {
-					status: chosenLabel || toStatusLabel(chosenKey),
-					details,
-					tone: toStatusTone(chosenKey)
-				};
-			}
+			vendorStatusSummary = buildVendorStatusSummary(vendorSites);
 		}
 	}
 
@@ -1180,106 +893,26 @@ let openHelpTopicId = '';
 		}
 	};
 
-	/** @param {{ address?: string, address_line_1?: string, address_line_2?: string, address_line_3?: string }} site */
-	const getAddressLines = (site) => {
-		const lines = [
-			String(site.address_line_1 ?? '').trim(),
-			String(site.address_line_2 ?? '').trim(),
-			String(site.address_line_3 ?? '').trim()
-		].filter(Boolean);
-		if (lines.length > 0) return lines;
+	/**
+	 * @param {{ id?: string, name?: string, address?: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city?: string, state?: string, zip?: string }} site
+	 * @param {'vendor' | 'shipTo'} tab
+	 */
+	const formatClipboardAddressBlock = (site, tab) => {
+		const addressBlock = formatAddressBlockFromParts(site);
+		if (tab !== 'vendor') return addressBlock;
 
-		const fallback = String(site.address ?? '').trim();
-		return fallback ? [fallback] : [];
-	};
+		const supplierName = String(site.name ?? '').trim();
+		const supplierNumber = String(site.id ?? '').trim();
+		const supplierLabel =
+			supplierName && supplierNumber ? `${supplierName}[${supplierNumber}]` : '';
 
-	/** @param {{ city?: string, state?: string, zip?: string }} site */
-	const formatCityStateZip = (site) => {
-		const city = String(site.city ?? '').trim();
-		const state = String(site.state ?? '').trim();
-		const zip = String(site.zip ?? '').trim();
-		const locality = [city, state].filter(Boolean).join(', ');
-		return [locality, zip].filter(Boolean).join(' ');
-	};
-
-	/** @param {Site} site */
-	const formatAddressBlock = (site) =>
-		[...getAddressLines(site), formatCityStateZip(site)].filter(Boolean).join('\n');
-
-	/** @param {Site} site */
-	const getSitePurpose = (site) => String(site.address_purpose ?? site.type ?? '').trim();
-
-	/** @param {unknown} value */
-	const parseTypes = (value) => {
-		if (typeof value !== 'string') return [];
-		return value
-			.split(',')
-			.map((entry) => entry.trim())
-			.filter(Boolean);
-	};
-
-	/** @param {string} value */
-const typeIconKey = (value) => {
-	const normalized = value.trim().toLowerCase();
-	if (normalized === 'purchasing') return 'purchasing';
-	if (normalized === 'payment' || normalized === 'pay') return 'payment';
-	if (normalized === 'request for quote' || normalized === 'request for quotation') return 'request_for_quote';
-	return '';
-};
-
-	/** @param {string} value */
-	const typeFilterLabel = (value) => {
-		const key = typeIconKey(value);
-		if (key === 'purchasing') return 'Legal Address';
-		if (key === 'payment') return 'Remit To';
-		return value;
-	};
-
-	/** @param {{ address?: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city?: string, state?: string, zip?: string }} location */
-	const formatAddressBlockFromParts = (location) =>
-		[...getAddressLines(location), formatCityStateZip(location)].filter(Boolean).join('\n');
-
-	/** @param {Site[]} sites */
-	const groupSites = (sites) => {
-		/** @type {Map<string, GroupedSite>} */
-		const map = new Map();
-		for (const site of sites) {
-			const key = `${site.name}|${getAddressLines(site).join('|')}|${site.city}|${site.state}|${site.zip}`;
-			const existing = map.get(key);
-			const types = parseTypes(getSitePurpose(site));
-			if (existing) {
-				for (const entry of types) {
-					if (!existing.types.includes(entry)) {
-						existing.types = [...existing.types, entry];
-					}
-				}
-				if (!existing.siteIds.includes(site.id)) {
-					existing.siteIds = [...existing.siteIds, site.id];
-				}
-				continue;
-			}
-			map.set(key, {
-				key,
-				id: site.id,
-				name: site.name,
-				address: site.address,
-				address_line_1: site.address_line_1,
-				address_line_2: site.address_line_2,
-				address_line_3: site.address_line_3,
-				city: site.city,
-				state: site.state,
-				zip: site.zip,
-				types,
-				siteIds: [site.id]
-			});
-		}
-		return Array.from(map.values());
+		return [supplierLabel, addressBlock].filter(Boolean).join('\n');
 	};
 
 	/** @param {Site} site */
 	const copyAddress = (site) => {
 		if (typeof window === 'undefined' || !navigator?.clipboard?.writeText) return;
-		const text = formatAddressBlock(site);
+		const text = formatClipboardAddressBlock(site, activeTab);
 		navigator.clipboard
 			.writeText(text)
 			.then(() => showToast('Copied address block', site.id, activeTab))
@@ -1294,7 +927,7 @@ const typeIconKey = (value) => {
 	/** @param {GroupedSite} site */
 	const copyAddressForGroup = (site) => {
 		if (typeof window === 'undefined' || !navigator?.clipboard?.writeText) return;
-		const text = formatAddressBlockFromParts(site);
+		const text = formatClipboardAddressBlock(site, activeTab);
 		navigator.clipboard
 			.writeText(text)
 			.then(() => showToast('Copied address block', site.key, activeTab))
@@ -1578,14 +1211,14 @@ const typeIconKey = (value) => {
 									</svg>
 								</button>
 							</div>
-							{#if showSupplierActionLink}
+							{#if supplierActionState.showSupplierActionLink}
 								<a
 									class="search__external-link search__external-link--prominent"
-									href={supplierActionUrl}
+									href={supplierActionState.supplierActionUrl}
 									target="_blank"
 									rel="noopener noreferrer"
 								>
-									<span>{supplierActionLabel}</span>
+									<span>{supplierActionState.supplierActionLabel}</span>
 									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 										<path d="M7 17L17 7"></path>
 										<path d="M9 7h8v8"></path>
@@ -1710,30 +1343,30 @@ const typeIconKey = (value) => {
 							{/if}
 							<div class="card__chip-row">
 								{#each site.types as type}
-									<span
-										class="card__chip"
-										title={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
-										aria-label={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
-									>
-										{#if typeIconKey(type) === 'purchasing'}
-											<svg class="card__chip-icon card__chip-icon--purchasing" xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
-												<path fill="currentColor" fill-rule="evenodd" d="M6 16a2.5 2.5 0 0 1 2.5-2.5h40a2.5 2.5 0 0 1 0 5h-3v12h24A1.5 1.5 0 0 1 71 32v29.5h.5a2.5 2.5 0 0 1 0 5h-37V58a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8.5h-14a2.5 2.5 0 0 1 0-5h3v-43h-3A2.5 2.5 0 0 1 6 16m13.5 4.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM25 23a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 25 23m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM17 31a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 17 31m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM33 31a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 33 31m-13.5 5.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM25 39a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 25 39m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM17 47a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 17 47m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM33 47a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 33 47m31-8a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zm-2.5 5.5A2.5 2.5 0 0 1 64 47v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5M64 55a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zM53.5 36.5A2.5 2.5 0 0 1 56 39v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5M56 47a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zm-2.5 5.5A2.5 2.5 0 0 1 56 55v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5" clip-rule="evenodd" />
-											</svg>
-										{:else if typeIconKey(type) === 'payment'}
-											<svg class="card__chip-icon card__chip-icon--payment" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
-												<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-													<circle cx="12" cy="12" r="10" />
-													<path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8m4 2V6" />
-												</g>
-											</svg>
-										{:else if typeIconKey(type) === 'request_for_quote'}
-											<svg class="card__chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
-												<path fill="currentColor" d="M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25m13.274 9.537l-4.557 4.45a.75.75 0 0 1-1.055-.008l-1.943-1.95a.75.75 0 0 1 1.062-1.058l1.419 1.425l4.026-3.932a.75.75 0 1 1 1.048 1.074M4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5M4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75" />
-											</svg>
-										{:else}
-											<span class="card__chip-text">{type}</span>
-										{/if}
-									</span>
+									{#if ['purchasing', 'payment', 'request_for_quote'].includes(typeIconKey(type))}
+										<span
+											class="card__chip"
+											title={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
+											aria-label={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
+										>
+											{#if typeIconKey(type) === 'purchasing'}
+												<svg class="card__chip-icon card__chip-icon--purchasing" xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
+													<path fill="currentColor" fill-rule="evenodd" d="M6 16a2.5 2.5 0 0 1 2.5-2.5h40a2.5 2.5 0 0 1 0 5h-3v12h24A1.5 1.5 0 0 1 71 32v29.5h.5a2.5 2.5 0 0 1 0 5h-37V58a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8.5h-14a2.5 2.5 0 0 1 0-5h3v-43h-3A2.5 2.5 0 0 1 6 16m13.5 4.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM25 23a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 25 23m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM17 31a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 17 31m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM33 31a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 33 31m-13.5 5.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM25 39a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 25 39m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM17 47a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 17 47m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM33 47a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 33 47m31-8a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zm-2.5 5.5A2.5 2.5 0 0 1 64 47v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5M64 55a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zM53.5 36.5A2.5 2.5 0 0 1 56 39v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5M56 47a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zm-2.5 5.5A2.5 2.5 0 0 1 56 55v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5" clip-rule="evenodd" />
+												</svg>
+											{:else if typeIconKey(type) === 'payment'}
+												<svg class="card__chip-icon card__chip-icon--payment" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+													<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+														<circle cx="12" cy="12" r="10" />
+														<path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8m4 2V6" />
+													</g>
+												</svg>
+											{:else if typeIconKey(type) === 'request_for_quote'}
+												<svg class="card__chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+													<path fill="currentColor" d="M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25m13.274 9.537l-4.557 4.45a.75.75 0 0 1-1.055-.008l-1.943-1.95a.75.75 0 0 1 1.062-1.058l1.419 1.425l4.026-3.932a.75.75 0 1 1 1.048 1.074M4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5M4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75" />
+												</svg>
+											{/if}
+										</span>
+									{/if}
 								{/each}
 							</div>
 							<div class="card__content">
@@ -1881,30 +1514,30 @@ const typeIconKey = (value) => {
 							{/if}
 							<div class="card__chip-row">
 								{#each site.types as type}
-									<span
-										class="card__chip"
-										title={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
-										aria-label={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
-									>
-										{#if typeIconKey(type) === 'purchasing'}
-											<svg class="card__chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
-												<path fill="currentColor" d="M4 22h16v-2h-1V4H5v16H4zm3-4h2v2H7zm0-4h2v2H7zm0-4h2v2H7zm4 8h2v2h-2zm0-4h2v2h-2zm0-4h2v2h-2zm4 8h2v2h-2zm0-4h2v2h-2zm0-4h2v2h-2z" />
-											</svg>
-										{:else if typeIconKey(type) === 'payment'}
-											<svg class="card__chip-icon card__chip-icon--payment" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
-												<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-													<circle cx="12" cy="12" r="10" />
-													<path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8m4 2V6" />
-												</g>
-											</svg>
-										{:else if typeIconKey(type) === 'request_for_quote'}
-											<svg class="card__chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
-												<path fill="currentColor" d="M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25m13.274 9.537l-4.557 4.45a.75.75 0 0 1-1.055-.008l-1.943-1.95a.75.75 0 0 1 1.062-1.058l1.419 1.425l4.026-3.932a.75.75 0 1 1 1.048 1.074M4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5M4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75" />
-											</svg>
-										{:else}
-											<span class="card__chip-text">{type}</span>
-										{/if}
-									</span>
+									{#if ['purchasing', 'payment', 'request_for_quote'].includes(typeIconKey(type))}
+										<span
+											class="card__chip"
+											title={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
+											aria-label={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
+										>
+											{#if typeIconKey(type) === 'purchasing'}
+												<svg class="card__chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+													<path fill="currentColor" d="M4 22h16v-2h-1V4H5v16H4zm3-4h2v2H7zm0-4h2v2H7zm0-4h2v2H7zm4 8h2v2h-2zm0-4h2v2h-2zm0-4h2v2h-2zm4 8h2v2h-2zm0-4h2v2h-2zm0-4h2v2h-2z" />
+												</svg>
+											{:else if typeIconKey(type) === 'payment'}
+												<svg class="card__chip-icon card__chip-icon--payment" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+													<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+														<circle cx="12" cy="12" r="10" />
+														<path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8m4 2V6" />
+													</g>
+												</svg>
+											{:else if typeIconKey(type) === 'request_for_quote'}
+												<svg class="card__chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+													<path fill="currentColor" d="M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25m13.274 9.537l-4.557 4.45a.75.75 0 0 1-1.055-.008l-1.943-1.95a.75.75 0 0 1 1.062-1.058l1.419 1.425l4.026-3.932a.75.75 0 1 1 1.048 1.074M4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5M4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75" />
+												</svg>
+											{/if}
+										</span>
+									{/if}
 								{/each}
 							</div>
 							<div class="card__content">
