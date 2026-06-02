@@ -10,4 +10,23 @@ declare global {
 	}
 }
 
+declare module 'https://cdn.skypack.dev/@flexbase-eng/procore-iframe-helpers' {
+	interface ProcoreIframeContext {
+		authentication?: {
+			authenticate?: (options: {
+				url: string;
+				onSuccess: (payload: unknown) => void;
+				onFailure: (error: unknown) => void;
+			}) => void;
+		};
+	}
+
+	interface ProcoreIframeHelpers {
+		initialize?: () => ProcoreIframeContext | null;
+	}
+
+	const helpers: ProcoreIframeHelpers;
+	export default helpers;
+}
+
 export {};
