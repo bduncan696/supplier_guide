@@ -9,7 +9,9 @@
 		formatAddressBlockFromParts,
 		formatCityStateZip,
 		getAddressLines,
+		getSiteIconKeys,
 		getSitePurpose,
+		iconLabelForKey,
 		groupSites,
 		parseTypes,
 		typeFilterLabel,
@@ -37,8 +39,8 @@
 	} from '$lib/procore-panel.js';
 	import horizontalLogo from '$lib/assets/BurnsMcDonnell_Horiz_Small_RGB_R_high.png';
 
-	/** @typedef {{ type?: string, address_purpose?: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
-	/** @typedef {{ key: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[] }} GroupedSite */
+	/** @typedef {{ type?: string, address_purpose?: string, purchasing_site_flag?: boolean | string | number | null, pay_site_flag?: boolean | string | number | null, purchase_order_hold_flags?: boolean | string | number | null, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
+	/** @typedef {{ key: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[], purchasing_site_flag: boolean, pay_site_flag: boolean }} GroupedSite */
 	/** @typedef {{ id: string, name: string, city: string, state: string }} VendorSuggestion */
 	/** @typedef {{ authentication?: { authenticate?: (options: { url: string, onSuccess: (payload: unknown) => void, onFailure: (error: unknown) => void }) => void } }} ProcoreIframeContext */
 	/** @typedef {{ initialize?: () => ProcoreIframeContext | null }} ProcoreIframeHelpers */
@@ -133,7 +135,7 @@
 	let typeOptions = [];
 	/** @type {string[]} */
 	let resolvedTypeOptions = [];
-	/** @type {{ status: string, details: string, tone: 'red' | 'yellow' | 'gray' | 'green' } | null} */
+	/** @type {{ status: string, details: string, tone: 'red' | 'yellow' | 'gray' | 'green', purchaseOrderHold: boolean } | null} */
 	let vendorStatusSummary = null;
 
 	let openHelpTopicId = '';
@@ -1283,6 +1285,35 @@
 											aria-hidden="true"
 										></span>
 										<span>{vendorStatusSummary.status}</span>
+										{#if vendorStatusSummary.purchaseOrderHold}
+											<span class="vendor-status-card__stop-icon" aria-label="Purchase order hold">
+												<svg viewBox="0 0 64 64" focusable="false" aria-hidden="true">
+													<path fill="currentColor" d="M20 4h24l16 16v24L44 60H20L4 44V20z"></path>
+													<path
+														fill="none"
+														stroke="#fff"
+														stroke-width="3"
+														stroke-linejoin="round"
+														d="M22 9h20l13 13v20L42 55H22L9 42V22z"
+													></path>
+													<g fill="#fff">
+														<rect x="18" y="21" width="5" height="15" rx="2.5"></rect>
+														<rect x="24" y="14" width="5" height="22" rx="2.5"></rect>
+														<rect x="30" y="12" width="5" height="24" rx="2.5"></rect>
+														<rect x="36" y="12" width="5" height="24" rx="2.5"></rect>
+														<rect x="18" y="32" width="24" height="19" rx="10"></rect>
+														<rect
+															x="38"
+															y="28"
+															width="7"
+															height="18"
+															rx="3.5"
+															transform="rotate(28 38 28)"
+														></rect>
+													</g>
+												</svg>
+											</span>
+										{/if}
 									</span>
 									<span class="vendor-status-card__label_details">Supplier Status Details</span>
 									<span
@@ -1342,27 +1373,23 @@
 								</div>
 							{/if}
 							<div class="card__chip-row">
-								{#each site.types as type}
-									{#if ['purchasing', 'payment', 'request_for_quote'].includes(typeIconKey(type))}
+								{#each getSiteIconKeys(site) as iconKey}
+									{#if ['purchasing', 'payment'].includes(iconKey)}
 										<span
 											class="card__chip"
-											title={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
-											aria-label={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
+											title={iconLabelForKey(iconKey)}
+											aria-label={iconLabelForKey(iconKey)}
 										>
-											{#if typeIconKey(type) === 'purchasing'}
+											{#if iconKey === 'purchasing'}
 												<svg class="card__chip-icon card__chip-icon--purchasing" xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
 													<path fill="currentColor" fill-rule="evenodd" d="M6 16a2.5 2.5 0 0 1 2.5-2.5h40a2.5 2.5 0 0 1 0 5h-3v12h24A1.5 1.5 0 0 1 71 32v29.5h.5a2.5 2.5 0 0 1 0 5h-37V58a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8.5h-14a2.5 2.5 0 0 1 0-5h3v-43h-3A2.5 2.5 0 0 1 6 16m13.5 4.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM25 23a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 25 23m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM17 31a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 17 31m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM33 31a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 33 31m-13.5 5.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM25 39a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 25 39m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM17 47a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 17 47m10.5-2.5a2.5 2.5 0 0 0 0 5h2a2.5 2.5 0 0 0 0-5zM33 47a2.5 2.5 0 0 1 2.5-2.5h2a2.5 2.5 0 0 1 0 5h-2A2.5 2.5 0 0 1 33 47m31-8a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zm-2.5 5.5A2.5 2.5 0 0 1 64 47v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5M64 55a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zM53.5 36.5A2.5 2.5 0 0 1 56 39v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5M56 47a2.5 2.5 0 0 0-5 0v2a2.5 2.5 0 0 0 5 0zm-2.5 5.5A2.5 2.5 0 0 1 56 55v2a2.5 2.5 0 0 1-5 0v-2a2.5 2.5 0 0 1 2.5-2.5" clip-rule="evenodd" />
 												</svg>
-											{:else if typeIconKey(type) === 'payment'}
+											{:else if iconKey === 'payment'}
 												<svg class="card__chip-icon card__chip-icon--payment" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
 													<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
 														<circle cx="12" cy="12" r="10" />
 														<path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8m4 2V6" />
 													</g>
-												</svg>
-											{:else if typeIconKey(type) === 'request_for_quote'}
-												<svg class="card__chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
-													<path fill="currentColor" d="M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25m13.274 9.537l-4.557 4.45a.75.75 0 0 1-1.055-.008l-1.943-1.95a.75.75 0 0 1 1.062-1.058l1.419 1.425l4.026-3.932a.75.75 0 1 1 1.048 1.074M4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5M4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75" />
 												</svg>
 											{/if}
 										</span>
@@ -1514,11 +1541,11 @@
 							{/if}
 							<div class="card__chip-row">
 								{#each site.types as type}
-									{#if ['purchasing', 'payment', 'request_for_quote'].includes(typeIconKey(type))}
+									{#if ['purchasing', 'payment'].includes(typeIconKey(type))}
 										<span
 											class="card__chip"
-											title={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
-											aria-label={typeIconKey(type) === 'purchasing' ? 'Legal Address' : typeIconKey(type) === 'payment' ? 'Remit To' : type}
+											title={typeIconKey(type) === 'purchasing' ? 'Legal Address' : 'Remit To'}
+											aria-label={typeIconKey(type) === 'purchasing' ? 'Legal Address' : 'Remit To'}
 										>
 											{#if typeIconKey(type) === 'purchasing'}
 												<svg class="card__chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
@@ -1530,10 +1557,6 @@
 														<circle cx="12" cy="12" r="10" />
 														<path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8m4 2V6" />
 													</g>
-												</svg>
-											{:else if typeIconKey(type) === 'request_for_quote'}
-												<svg class="card__chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
-													<path fill="currentColor" d="M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25m13.274 9.537l-4.557 4.45a.75.75 0 0 1-1.055-.008l-1.943-1.95a.75.75 0 0 1 1.062-1.058l1.419 1.425l4.026-3.932a.75.75 0 1 1 1.048 1.074M4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5M4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75" />
 												</svg>
 											{/if}
 										</span>

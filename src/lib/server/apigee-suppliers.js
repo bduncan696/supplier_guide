@@ -2,12 +2,12 @@ import { env } from '$env/dynamic/private';
 import { apigeeGet, asString } from './apigee-client.js';
 import { normalizeForMatch } from './vendor-sites.js';
 
-/** @typedef {{ supplier_number?: unknown, supplier_name?: unknown, supplier_type?: unknown, supplier_status?: unknown, supplier_status_details?: unknown }} SupplierHeader */
-/** @typedef {{ address_line_1?: unknown, address_line_2?: unknown, address_line_3?: unknown, address_purpose?: unknown, city?: unknown, state?: unknown, province?: unknown, postal_code?: unknown, country?: unknown }} SupplierSiteRow */
+/** @typedef {{ supplier_number?: unknown, supplier_name?: unknown, supplier_type?: unknown, supplier_status?: unknown, supplier_status_details?: unknown, purchase_order_hold_flags?: unknown }} SupplierHeader */
+/** @typedef {{ address_line_1?: unknown, address_line_2?: unknown, address_line_3?: unknown, address_purpose?: unknown, city?: unknown, state?: unknown, province?: unknown, postal_code?: unknown, country?: unknown, purchasing_site_flag?: unknown, pay_site_flag?: unknown }} SupplierSiteRow */
 /** @typedef {{ supplier_header?: SupplierHeader, supplier_sites?: SupplierSiteRow[] }} SupplierRecord */
 /** @typedef {{ supplier_number?: unknown, supplier_name?: unknown }} SupplierSearchRow */
 /** @typedef {{ id: string, name: string, city: string, state: string }} VendorSuggestion */
-/** @typedef {{ address_purpose: string, id: string, name: string, address: string, city: string, state: string, zip: string, country: string, status: string, status_details: string }} VendorSite */
+/** @typedef {{ address_purpose: string, purchasing_site_flag: boolean, pay_site_flag: boolean, purchase_order_hold_flags: boolean, id: string, name: string, address: string, city: string, state: string, zip: string, country: string, status: string, status_details: string }} VendorSite */
 /** @typedef {{ vendorId?: string | null, vendorName?: string | null }} VendorFilters */
 /** @typedef {{ query: string, suggestions: VendorSuggestion[], exactMatch: VendorSuggestion | null, loadedAt: number }} VendorSearchSnapshot */
 /** @typedef {{ sites: VendorSite[], loadedAt: number }} VendorSitesSnapshot */
@@ -48,6 +48,14 @@ const getVendorMatchLimit = () => {
 	return Math.max(1, Math.min(MAX_VENDOR_MATCH_LIMIT, fallback));
 };
 
+/** @param {unknown} value */
+const toBooleanFlag = (value) => {
+	if (typeof value === 'boolean') return value;
+	if (typeof value === 'number') return value !== 0;
+	const normalized = asString(value).toLowerCase();
+	return ['1', 'true', 't', 'yes', 'y'].includes(normalized);
+};
+
 /** @param {SupplierSiteRow | null | undefined} site */
 const joinAddressLines = (site) =>
 	[site?.address_line_1, site?.address_line_2, site?.address_line_3]
@@ -65,10 +73,14 @@ const mapSupplierToVendorSites = (supplier) => {
 	const supplierType = asString(header?.supplier_type);
 	const supplierStatus = asString(header?.supplier_status);
 	const supplierStatusDetails = asString(header?.supplier_status_details);
+	const purchaseOrderHoldFlags = toBooleanFlag(header?.purchase_order_hold_flags);
 	const supplierSites = Array.isArray(supplier?.supplier_sites) ? supplier.supplier_sites : [];
 
 	return supplierSites.map((site) => ({
 		address_purpose: asString(site?.address_purpose) || supplierType,
+		purchasing_site_flag: toBooleanFlag(site?.purchasing_site_flag),
+		pay_site_flag: toBooleanFlag(site?.pay_site_flag),
+		purchase_order_hold_flags: purchaseOrderHoldFlags,
 		id: supplierId,
 		name: supplierName,
 		address: joinAddressLines(site),

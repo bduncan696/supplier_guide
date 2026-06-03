@@ -1,6 +1,6 @@
-/** @typedef {{ type?: string, address_purpose?: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
-/** @typedef {{ key: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[] }} GroupedSite */
-/** @typedef {{ status: string, details: string, tone: 'red' | 'yellow' | 'gray' | 'green' }} VendorStatusSummary */
+/** @typedef {{ type?: string, address_purpose?: string, purchasing_site_flag?: boolean | string | number | null, pay_site_flag?: boolean | string | number | null, purchase_order_hold_flags?: boolean | string | number | null, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
+/** @typedef {{ key: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[], purchasing_site_flag: boolean, pay_site_flag: boolean }} GroupedSite */
+/** @typedef {{ status: string, details: string, tone: 'red' | 'yellow' | 'gray' | 'green', purchaseOrderHold: boolean }} VendorStatusSummary */
 
 /** @type {Record<string, number>} */
 const STATUS_PRIORITY = {
@@ -62,9 +62,6 @@ export const typeIconKey = (value) => {
 	const normalized = value.trim().toLowerCase();
 	if (normalized === 'purchasing') return 'purchasing';
 	if (normalized === 'payment' || normalized === 'pay') return 'payment';
-	if (normalized === 'request for quote' || normalized === 'request for quotation') {
-		return 'request_for_quote';
-	}
 	return '';
 };
 
@@ -74,6 +71,33 @@ export const typeFilterLabel = (value) => {
 	if (key === 'purchasing') return 'Legal Address';
 	if (key === 'payment') return 'Remit To';
 	return value;
+};
+
+/** @param {unknown} value */
+const isTruthyFlag = (value) => {
+	if (typeof value === 'boolean') return value;
+	if (typeof value === 'number') return value !== 0;
+	if (typeof value === 'string') {
+		const normalized = value.trim().toLowerCase();
+		return ['1', 'true', 't', 'yes', 'y'].includes(normalized);
+	}
+	return false;
+};
+
+/** @param {{ purchasing_site_flag?: unknown, pay_site_flag?: unknown }} site */
+export const getSiteIconKeys = (site) => {
+	/** @type {string[]} */
+	const keys = [];
+	if (isTruthyFlag(site.purchasing_site_flag)) keys.push('purchasing');
+	if (isTruthyFlag(site.pay_site_flag)) keys.push('payment');
+	return keys;
+};
+
+/** @param {string} key */
+export const iconLabelForKey = (key) => {
+	if (key === 'purchasing') return 'Legal Address';
+	if (key === 'payment') return 'Remit To';
+	return key;
 };
 
 /** @param {Site[]} sites */
@@ -93,6 +117,8 @@ export const groupSites = (sites) => {
 			if (!existing.siteIds.includes(site.id)) {
 				existing.siteIds = [...existing.siteIds, site.id];
 			}
+			existing.purchasing_site_flag = existing.purchasing_site_flag || isTruthyFlag(site.purchasing_site_flag);
+			existing.pay_site_flag = existing.pay_site_flag || isTruthyFlag(site.pay_site_flag);
 			continue;
 		}
 		map.set(key, {
@@ -107,7 +133,9 @@ export const groupSites = (sites) => {
 			state: site.state,
 			zip: site.zip,
 			types,
-			siteIds: [site.id]
+			siteIds: [site.id],
+			purchasing_site_flag: isTruthyFlag(site.purchasing_site_flag),
+			pay_site_flag: isTruthyFlag(site.pay_site_flag)
 		});
 	}
 	return Array.from(map.values());
@@ -216,6 +244,7 @@ export const buildVendorStatusSummary = (sites) => {
 	return {
 		status: chosenLabel || toStatusLabel(chosenKey),
 		details,
-		tone: toStatusTone(chosenKey)
+		tone: toStatusTone(chosenKey),
+		purchaseOrderHold: sites.some((site) => isTruthyFlag(site.purchase_order_hold_flags))
 	};
 };
