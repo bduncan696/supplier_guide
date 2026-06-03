@@ -548,6 +548,20 @@
 	gap: 0.45rem;
 }
 
+.vendor-status-card__stop-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	color: #ff3b30;
+	flex: 0 0 auto;
+}
+
+.vendor-status-card__stop-icon svg {
+	display: block;
+	width: 28px;
+	height: 28px;
+}
+
 .vendor-status-card__dot {
 	width: 15px;
 	height: 15px;
