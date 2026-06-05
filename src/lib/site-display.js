@@ -1,5 +1,5 @@
-/** @typedef {{ type?: string, address_purpose?: string, purchasing_site_flag?: boolean | string | number | null, pay_site_flag?: boolean | string | number | null, purchase_order_hold_flags?: boolean | string | number | null, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
-/** @typedef {{ key: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[], purchasing_site_flag: boolean, pay_site_flag: boolean }} GroupedSite */
+/** @typedef {{ type?: string, address_purpose?: string, purchasing_site_flag?: boolean | string | number | null, pay_site_flag?: boolean | string | number | null, purchase_order_hold_flags?: boolean | string | number | null, supplier_id?: string, vendor_site_id?: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
+/** @typedef {{ key: string, id: string, supplier_id?: string, vendor_site_id?: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[], vendorSiteIds?: string[], purchasing_site_flag: boolean, pay_site_flag: boolean }} GroupedSite */
 /** @typedef {{ status: string, details: string, tone: 'red' | 'yellow' | 'gray' | 'green', purchaseOrderHold: boolean }} VendorStatusSummary */
 
 /** @type {Record<string, number>} */
@@ -117,6 +117,12 @@ export const groupSites = (sites) => {
 			if (!existing.siteIds.includes(site.id)) {
 				existing.siteIds = [...existing.siteIds, site.id];
 			}
+			if (site.vendor_site_id) {
+				const currentVendorSiteIds = existing.vendorSiteIds ?? [];
+				if (!currentVendorSiteIds.includes(site.vendor_site_id)) {
+					existing.vendorSiteIds = [...currentVendorSiteIds, site.vendor_site_id];
+				}
+			}
 			existing.purchasing_site_flag = existing.purchasing_site_flag || isTruthyFlag(site.purchasing_site_flag);
 			existing.pay_site_flag = existing.pay_site_flag || isTruthyFlag(site.pay_site_flag);
 			continue;
@@ -124,6 +130,8 @@ export const groupSites = (sites) => {
 		map.set(key, {
 			key,
 			id: site.id,
+			supplier_id: site.supplier_id,
+			vendor_site_id: site.vendor_site_id,
 			name: site.name,
 			address: site.address,
 			address_line_1: site.address_line_1,
@@ -134,6 +142,7 @@ export const groupSites = (sites) => {
 			zip: site.zip,
 			types,
 			siteIds: [site.id],
+			vendorSiteIds: site.vendor_site_id ? [site.vendor_site_id] : [],
 			purchasing_site_flag: isTruthyFlag(site.purchasing_site_flag),
 			pay_site_flag: isTruthyFlag(site.pay_site_flag)
 		});

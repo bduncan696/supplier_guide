@@ -39,8 +39,8 @@
 	} from '$lib/procore-panel.js';
 	import horizontalLogo from '$lib/assets/BurnsMcDonnell_Horiz_Small_RGB_R_high.png';
 
-	/** @typedef {{ type?: string, address_purpose?: string, purchasing_site_flag?: boolean | string | number | null, pay_site_flag?: boolean | string | number | null, purchase_order_hold_flags?: boolean | string | number | null, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
-	/** @typedef {{ key: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[], purchasing_site_flag: boolean, pay_site_flag: boolean }} GroupedSite */
+	/** @typedef {{ type?: string, address_purpose?: string, purchasing_site_flag?: boolean | string | number | null, pay_site_flag?: boolean | string | number | null, purchase_order_hold_flags?: boolean | string | number | null, supplier_id?: string, vendor_site_id?: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
+	/** @typedef {{ key: string, id: string, supplier_id?: string, vendor_site_id?: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[], vendorSiteIds?: string[], purchasing_site_flag: boolean, pay_site_flag: boolean }} GroupedSite */
 	/** @typedef {{ id: string, name: string, city: string, state: string }} VendorSuggestion */
 	/** @typedef {{ authentication?: { authenticate?: (options: { url: string, onSuccess: (payload: unknown) => void, onFailure: (error: unknown) => void }) => void } }} ProcoreIframeContext */
 	/** @typedef {{ initialize?: () => ProcoreIframeContext | null }} ProcoreIframeHelpers */
@@ -896,19 +896,14 @@
 	};
 
 	/**
-	 * @param {{ id?: string, name?: string, address?: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city?: string, state?: string, zip?: string }} site
+	 * @param {{ id?: string, name?: string, address?: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city?: string, state?: string, zip?: string, vendor_site_id?: string, vendorSiteIds?: string[] }} site
 	 * @param {'vendor' | 'shipTo'} tab
 	 */
 	const formatClipboardAddressBlock = (site, tab) => {
 		const addressBlock = formatAddressBlockFromParts(site);
 		if (tab !== 'vendor') return addressBlock;
-
-		const supplierName = String(site.name ?? '').trim();
-		const supplierNumber = String(site.id ?? '').trim();
-		const supplierLabel =
-			supplierName && supplierNumber ? `${supplierName}[${supplierNumber}]` : '';
-
-		return [supplierLabel, addressBlock].filter(Boolean).join('\n');
+		const vendorSiteId = String(site.vendor_site_id ?? site.vendorSiteIds?.[0] ?? '').trim();
+		return vendorSiteId ? `${addressBlock} [${vendorSiteId}]` : addressBlock;
 	};
 
 	/** @param {Site} site */
