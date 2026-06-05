@@ -17102,8 +17102,10 @@ export const sampleVendorSites = sampleVendorSitesResponse.suppliers.flatMap((su
 	const supplierSites = Array.isArray(supplier?.supplier_sites) ? supplier.supplier_sites : [];
 
 	return supplierSites.map((site) => ({
+		supplier_id: String(header?.supplier_number ?? '').trim(),
+		vendor_site_id: String(site?.vendor_site_id ?? ''),
 		address_purpose: String(site?.address_purpose ?? '').trim(),
-		id: String(site?.vendor_site_id ?? ''),
+		id: String(header?.supplier_number ?? '').trim(),
 		name: String(header?.supplier_name ?? '').trim(),
 		address: [site?.address_line_1, site?.address_line_2, site?.address_line_3]
 			.map((part) => String(part ?? '').trim())
