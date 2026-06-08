@@ -895,21 +895,13 @@
 		}
 	};
 
-	/**
-	 * @param {{ id?: string, name?: string, address?: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city?: string, state?: string, zip?: string, vendor_site_id?: string, vendorSiteIds?: string[] }} site
-	 * @param {'vendor' | 'shipTo'} tab
-	 */
-	const formatClipboardAddressBlock = (site, tab) => {
-		const addressBlock = formatAddressBlockFromParts(site);
-		if (tab !== 'vendor') return addressBlock;
-		const vendorSiteId = String(site.vendor_site_id ?? site.vendorSiteIds?.[0] ?? '').trim();
-		return vendorSiteId ? `${addressBlock} [${vendorSiteId}]` : addressBlock;
-	};
+	/** @param {{ id?: string, name?: string, address?: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city?: string, state?: string, zip?: string }} site */
+	const formatClipboardAddressBlock = (site) => formatAddressBlockFromParts(site);
 
 	/** @param {Site} site */
 	const copyAddress = (site) => {
 		if (typeof window === 'undefined' || !navigator?.clipboard?.writeText) return;
-		const text = formatClipboardAddressBlock(site, activeTab);
+		const text = formatClipboardAddressBlock(site);
 		navigator.clipboard
 			.writeText(text)
 			.then(() => showToast('Copied address block', site.id, activeTab))
@@ -924,7 +916,7 @@
 	/** @param {GroupedSite} site */
 	const copyAddressForGroup = (site) => {
 		if (typeof window === 'undefined' || !navigator?.clipboard?.writeText) return;
-		const text = formatClipboardAddressBlock(site, activeTab);
+		const text = formatClipboardAddressBlock(site);
 		navigator.clipboard
 			.writeText(text)
 			.then(() => showToast('Copied address block', site.key, activeTab))
