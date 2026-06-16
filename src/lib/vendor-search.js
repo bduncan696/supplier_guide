@@ -6,7 +6,7 @@ export const VENDOR_SEARCH_DEBOUNCE_MS = 300;
 export const SUPPLIER_INTELLIGENCE_REQUEST_URL =
 	'https://burnsmcd.palantirfoundry.com/workspace/module/view/latest/ri.workshop.main.module.e074b65c-dfc2-40bd-abdc-5e5bbaba4846/requestsetup-1';
 export const SUPPLIER_REGISTRATION_BASE_URL =
-	'https://burnsmcd.palantirfoundry.com/workspace/module/view/latest/ri.workshop.main.module.e074b65c-dfc2-40bd-abdc-5e5bbaba4846/main-page?pageId=Registration&ConfirmSupplier=true';
+	'https://burnsmcd.palantirfoundry.com/workspace/module/view/latest/ri.workshop.main.module.e074b65c-dfc2-40bd-abdc-5e5bbaba4846/main-page?pageId=Directory&ConfirmSupplier=true';
 
 /** @param {string} value */
 export const hasVendorSearchSeed = (value) => {
@@ -39,7 +39,7 @@ export const buildSupplierRegistrationUrl = (resolvedSupplierId) => {
 	if (!resolvedSupplierId) return SUPPLIER_INTELLIGENCE_REQUEST_URL;
 
 	const url = new URL(SUPPLIER_REGISTRATION_BASE_URL);
-	url.searchParams.set('activeSupplierId', resolvedSupplierId);
+	url.searchParams.set('activeSupplierNo', resolvedSupplierId);
 	return url.toString();
 };
 
