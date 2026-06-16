@@ -6,25 +6,57 @@ on:
       - 'v*'
   workflow_dispatch:
 
+env:
+  ENVIRONMENT: test
+  PROJECT_ID: cdb-epc-tools-test-b3b1
+  SERVICE_NAME: cdb-epc-tools-sidepanel-test-cr
+  REGION: us-central1
+  JFROG_IMAGE: burnsmcd.pe.jfrog.io/cor-docker-test-centralus/cdb-epc-tools-sidepanel
+  DEPLOY_IMAGE: us-docker.pkg.dev/cdb-epc-tools-test-b3b1/bmcd-jfrog/cor-docker-test-centralus/cdb-epc-tools-sidepanel
+
 jobs:
-  print-github-ref:
+  build-and-deploy:
     runs-on: arc-runner-set
     steps:
-      - name: Print github.ref
-        run: echo "github.ref is ${{ github.ref }}"
-  call-reusable-workflow:
-    uses: burnsmcd/cor-gcp-cicd-workflows/.github/workflows/build_and_deploy.yml@genericize
-    with:
-      artifact_registry_name: bmcd-jfrog
-      container_repo_host: us-docker.pkg.dev
-      container_repo_path: cor-docker-test-centralus/cdb-epc-tools-sidepanel
-      dockerfile_path: Dockerfile
-      environment: test
-      image_tag: ${{ github.ref_name }}
-      project_id: cdb-epc-tools-test-b3b1
-      service_name: cdb-epc-tools-sidepanel-test-cr
-      
-    secrets:
-      DEPLOYMENT_SERVICE_ACCOUNT_KEY: ${{ secrets.DEPLOYMENT_SERVICE_ACCOUNT_KEY_TEST }}
-      ARTIFACTORY_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
-      ARTIFACTORY_TOKEN: ${{ secrets.ARTIFACTORY_TOKEN }}
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to JFrog Artifactory
+        env:
+          JFROG_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+          JFROG_PASSWORD: ${{ secrets.ARTIFACTORY_TOKEN }}
+        run: |
+          echo "$JFROG_PASSWORD" | docker login burnsmcd.pe.jfrog.io/cor-docker-test-centralus/cdb-epc-tools-sidepanel -u $JFROG_USERNAME --password-stdin
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.DEPLOYMENT_SERVICE_ACCOUNT_KEY_TEST }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and Push Docker image
+        run: |
+          IMAGE_NAME="${JFROG_IMAGE}:${{ github.ref_name }}"
+          echo "Building image: $IMAGE_NAME"
+          docker buildx build --platform linux/amd64 --tag $IMAGE_NAME --push -f Dockerfile . \
+            --no-cache \
+            --build-arg ARTIFACTORY_USER=${{ secrets.ARTIFACTORY_USERNAME }} \
+            --build-arg ARTIFACTORY_TOKEN=${{ secrets.ARTIFACTORY_TOKEN }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run services update $SERVICE_NAME \
+            --region=$REGION \
+            --project=$PROJECT_ID \
+            --image="${DEPLOY_IMAGE}:${{ github.ref_name }}"
+
+      - name: Route traffic to latest revision
+        run: |
+          gcloud run services update-traffic $SERVICE_NAME \
+            --region=$REGION \
+            --project=$PROJECT_ID \
+            --to-latest
