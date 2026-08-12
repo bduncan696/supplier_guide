@@ -113,6 +113,7 @@
 	let vendorSearchTimer = null;
 	/** @type {AbortController | null} */
 	let vendorSearchAbortController = null;
+	let vendorSearchRequestId = 0;
 	let vendorActiveSuggestionIndex = -1;
 	/** @type {string | null} */
 	let selectedVendorId = null;
@@ -589,6 +590,7 @@
 	const fetchVendorSuggestions = async (query) => {
 		const trimmedQuery = query.trim();
 		if (!hasVendorSearchSeed(trimmedQuery)) {
+			vendorSearchRequestId += 1;
 			vendorSuggestions = [];
 			showVendorSuggestions = false;
 			vendorActiveSuggestionIndex = -1;
@@ -597,7 +599,10 @@
 		if (vendorSearchAbortController) {
 			vendorSearchAbortController.abort();
 		}
-		vendorSearchAbortController = new AbortController();
+		const requestId = vendorSearchRequestId + 1;
+		vendorSearchRequestId = requestId;
+		const abortController = new AbortController();
+		vendorSearchAbortController = abortController;
 		vendorSearchInFlight = true;
 		showVendorSuggestions = true;
 		try {
@@ -605,10 +610,11 @@
 			requestUrl.searchParams.set('q', trimmedQuery);
 			requestUrl.searchParams.set('limit', String(VENDOR_SUGGESTION_LIMIT));
 			const response = await fetch(requestUrl.toString(), {
-				signal: vendorSearchAbortController.signal
+				signal: abortController.signal
 			});
 			if (!response.ok) throw new Error(`Failed to search vendors (${response.status})`);
 			const payload = await response.json();
+			if (requestId !== vendorSearchRequestId || vendorName.trim() !== trimmedQuery) return;
 			vendorSuggestions = Array.isArray(payload?.suggestions) ? payload.suggestions : [];
 			const exactMatch = payload?.exactMatch;
 			if (exactMatch?.name) {
@@ -622,12 +628,17 @@
 		} catch (err) {
 			if (!(err instanceof DOMException && err.name === 'AbortError')) {
 				console.warn('Unable to search vendors', err);
+				if (requestId !== vendorSearchRequestId || vendorName.trim() !== trimmedQuery) return;
 				vendorSuggestions = [];
 				vendorActiveSuggestionIndex = -1;
 			}
 		} finally {
-			vendorSearchInFlight = false;
-			vendorSearchAbortController = null;
+			if (requestId === vendorSearchRequestId) {
+				vendorSearchInFlight = false;
+				if (vendorSearchAbortController === abortController) {
+					vendorSearchAbortController = null;
+				}
+			}
 		}
 	};
 
@@ -637,6 +648,7 @@
 		}
 		const query = vendorName.trim();
 		if (!hasVendorSearchSeed(query)) {
+			vendorSearchRequestId += 1;
 			vendorSuggestions = [];
 			showVendorSuggestions = false;
 			vendorActiveSuggestionIndex = -1;
@@ -761,6 +773,7 @@
 			vendorSearchAbortController.abort();
 			vendorSearchAbortController = null;
 		}
+		vendorSearchRequestId += 1;
 		vendorName = '';
 		selectedVendorId = null;
 		selectedVendorName = null;
