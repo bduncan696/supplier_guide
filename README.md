@@ -54,7 +54,7 @@ Use a Linux Azure App Service configured for Node.js 22 LTS.
 
 Recommended App Service settings:
 
-- `SCM_DO_BUILD_DURING_DEPLOYMENT=true`
+- `SCM_DO_BUILD_DURING_DEPLOYMENT=false`
 - `PROCORE_ENV=production`
 - `PROCORE_CLIENT_ID=<Avicado Procore client id>`
 - `PROCORE_CLIENT_SECRET=<Avicado Procore client secret>`
@@ -67,10 +67,21 @@ Startup command:
 npm run start
 ```
 
-Build locally before publishing:
+Build and package locally before publishing:
 
 ```sh
 npm run build
+rm -rf /tmp/supplier-guide-appservice
+mkdir -p /tmp/supplier-guide-appservice
+cp package.json package-lock.json /tmp/supplier-guide-appservice/
+cp -R build /tmp/supplier-guide-appservice/build
+npm ci --omit=dev --prefix /tmp/supplier-guide-appservice
+cd /tmp/supplier-guide-appservice
+zip -qr /tmp/supplier-guide-appservice.zip .
+az webapp deployment source config-zip \
+  --resource-group rg-project-horizon \
+  --name avicado-supplier-guide \
+  --src /tmp/supplier-guide-appservice.zip
 ```
 
 Do not deploy with localhost callback URLs. Register the exact deployed callback URL in the Procore app configuration.
