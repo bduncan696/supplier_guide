@@ -1,5 +1,5 @@
 <script>
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from '$lib/assets/Avicado-Symbol.png';
 	import '../app.css';
 
 	let { children } = $props();

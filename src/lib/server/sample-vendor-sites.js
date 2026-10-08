@@ -17105,6 +17105,9 @@ export const sampleVendorSites = sampleVendorSitesResponse.suppliers.flatMap((su
 		supplier_id: String(header?.supplier_number ?? '').trim(),
 		vendor_site_id: String(site?.vendor_site_id ?? ''),
 		address_purpose: String(site?.address_purpose ?? '').trim(),
+		purchasing_site_flag: Boolean(site?.purchasing_site_flag),
+		pay_site_flag: Boolean(site?.pay_site_flag),
+		purchase_order_hold_flags: Boolean(header?.hold_all_payments_flag),
 		id: String(header?.supplier_number ?? '').trim(),
 		name: String(header?.supplier_name ?? '').trim(),
 		address: [site?.address_line_1, site?.address_line_2, site?.address_line_3]

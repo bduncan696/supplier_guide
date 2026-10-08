@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { getFirstToken } from '$lib/server/vendor-sites.js';
-import { searchSuppliersWithFallback } from '$lib/server/apigee-suppliers.js';
+import { searchSeedSuppliers } from '$lib/server/seed-sites.js';
 
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 10;
@@ -17,20 +17,5 @@ export const GET = async ({ url }) => {
 		? Math.max(1, Math.min(MAX_LIMIT, parsedLimit))
 		: DEFAULT_LIMIT;
 
-	try {
-		const payload = await searchSuppliersWithFallback(query, limit);
-		return json(payload);
-	} catch (err) {
-		console.error('Vendor supplier search API error', err);
-		return json(
-			{
-				source: 'error',
-				error: 'supplier_search_failed',
-				query,
-				suggestions: [],
-				exactMatch: null
-			},
-			{ status: 502 }
-		);
-	}
+	return json(searchSeedSuppliers(query, limit));
 };

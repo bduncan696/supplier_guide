@@ -3,10 +3,8 @@
 
 export const VENDOR_SUGGESTION_LIMIT = 5;
 export const VENDOR_SEARCH_DEBOUNCE_MS = 300;
-export const SUPPLIER_INTELLIGENCE_REQUEST_URL =
-	'https://burnsmcd.palantirfoundry.com/workspace/module/view/latest/ri.workshop.main.module.e074b65c-dfc2-40bd-abdc-5e5bbaba4846/requestsetup-1';
-export const SUPPLIER_REGISTRATION_BASE_URL =
-	'https://burnsmcd.palantirfoundry.com/workspace/module/view/latest/ri.workshop.main.module.e074b65c-dfc2-40bd-abdc-5e5bbaba4846/main-page?pageId=Directory&ConfirmSupplier=true';
+export const SUPPLIER_INTELLIGENCE_REQUEST_URL = '#';
+export const SUPPLIER_REGISTRATION_BASE_URL = '#';
 
 /** @param {string} value */
 export const hasVendorSearchSeed = (value) => {
@@ -37,10 +35,7 @@ export const resolveSupplierIdentity = (input) => {
 /** @param {string} resolvedSupplierId */
 export const buildSupplierRegistrationUrl = (resolvedSupplierId) => {
 	if (!resolvedSupplierId) return SUPPLIER_INTELLIGENCE_REQUEST_URL;
-
-	const url = new URL(SUPPLIER_REGISTRATION_BASE_URL);
-	url.searchParams.set('activeSupplierNo', resolvedSupplierId);
-	return url.toString();
+	return SUPPLIER_REGISTRATION_BASE_URL;
 };
 
 /**
@@ -77,7 +72,7 @@ export const buildSupplierActionState = (input) => {
 		supplierRegistrationUrl,
 		supplierActionUrl: SUPPLIER_INTELLIGENCE_REQUEST_URL,
 		supplierActionLabel:
-			"If you don't see the vendor you need please verify they have an active registration, or click here to upload their W9 for bidding.",
+			"If you don't see the supplier you need, verify they have an active registration or contact your procurement team.",
 		showSupplierActionLink
 	};
 };

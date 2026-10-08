@@ -3,9 +3,13 @@
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
+	"engines": {
+		"node": "20.x"
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"build:azure": "npm run build",
 		"start": "node build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -22,11 +26,11 @@
 		"vite": "^7.3.2"
 	},
 	"dependencies": {
-		"@google-cloud/cloud-sql-connector": "^1.5.0",
-		"marked": "^17.0.1",
-		"pg": "^8.16.3"
+		"marked": "^17.0.1"
 	},
 	"overrides": {
-		"cookie": "^0.7.0"
+		"cookie": "^0.7.0",
+		"devalue": "^6.0.2",
+		"source-map-js": "^1.2.2"
 	}
 }

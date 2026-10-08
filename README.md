@@ -1,6 +1,6 @@
-# Vendor Sites Side Panel
+# Vendor Sites Side Panel Demo
 
-SvelteKit app for the EPC tools side panel. It exposes server routes for Procore OAuth/proxy and vendor site lookups.
+SvelteKit app for the EPC tools side panel. It exposes server routes for Procore OAuth/proxy and demo vendor/project site lookups backed by local seed data.
 
 ## Setup
 
@@ -22,43 +22,24 @@ Run locally:
 npm run dev
 ```
 
-## Supplier API (APIGEE)
+## Demo Seed Data
 
-Vendor and project-site endpoints use APIGEE with OAuth client credentials.
+Vendor and project-site endpoints use local seed data from:
 
-1. Set:
-   - `APIGEE_CONSUMER_KEY`
-   - `APIGEE_CONSUMER_SECRET`
-2. Optionally configure:
-   - `APIGEE_BASE_URL` (defaults to nonprod)
-   - `APIGEE_ENV` (`nonprod`, `dev`, `test`, `prod`)
-   - `APIGEE_TIMEOUT_MS`, `APIGEE_RETRY_COUNT`, `APIGEE_TOKEN_REFRESH_WINDOW_MS`
-3. Use:
-   - `GET /api/vendor-sites?vendor_id=123` or `GET /api/vendor-sites?vendor_name=Acme`
-   - `GET /api/vendor-sites/search?q=acme&limit=5`
-   - `GET /api/project-sites?project_name=176136%20AECC%20Naples%20Power%20Plant`
+- `src/lib/server/sample-vendor-sites.js`
+- `src/lib/server/sample-project-sites.js`
 
-Notes:
-- Vendor search suggestions come from APIGEE supplier search.
-- Supplier site lookups come from the supplier detail response and preserve supplier status information.
-- Project site lookup derives `project_number` from the leading token in `project_name` and calls APIGEE ship-to-location search.
-- APIGEE responses are cached in memory as last-successful fallback snapshots for transient failures.
+Available endpoints:
+
+- `GET /api/vendor-sites?vendor_id=123` or `GET /api/vendor-sites?vendor_name=Acme`
+- `GET /api/vendor-sites/search?q=acme&limit=5`
+- `GET /api/project-sites?project_name=106354%20Ameren`
 
 ## Supplier UI behavior
 
-- If a supplier is resolved, the link under the Supplier search box opens the registration page with `activeSupplierId=<supplier_id>`.
-- If the user types a supplier name but does not resolve/select a supplier, the same under-input link falls back to the generic Supplier Intelligence request page.
+- If a supplier is resolved, the link under the Supplier search box uses a demo placeholder link.
+- If the user types a supplier name but does not resolve/select a supplier, the same under-input link falls back to a demo placeholder link.
 - The generic fallback link is only shown after the vendor lookup has completed.
-
-## Vendor database (Cloud SQL, legacy optional)
-
-The legacy server path can fetch vendor sites from `BMCD_TADP_SUPP_SITES_T`.
-
-1. Set `VENDOR_DB_ENABLED=true`.
-2. Configure either:
-   - `VENDOR_DB_CONNECTION_URL`, or
-   - `VENDOR_DB_INSTANCE_CONNECTION_NAME` + `VENDOR_DB_USER` + `VENDOR_DB_PASS` + `VENDOR_DB_NAME`.
-3. Fetch data via `GET /api/vendor-sites`.
 
 ## Build and Run (Production)
 
@@ -67,22 +48,36 @@ npm run build
 npm run start
 ```
 
-## Deploy to Cloud Run
+## Deploy to Azure
 
-Build and deploy from source:
+Use a Linux Azure App Service configured for Node.js 20 LTS.
+
+Recommended App Service settings:
+
+- `SCM_DO_BUILD_DURING_DEPLOYMENT=true`
+- `PROCORE_ENV=production`
+- `PROCORE_CLIENT_ID=<Avicado Procore client id>`
+- `PROCORE_CLIENT_SECRET=<Avicado Procore client secret>`
+- `PROCORE_OAUTH_SCOPES=<optional scopes>`
+- `PROCORE_REDIRECT_URI=https://<azure-app-name>.azurewebsites.net/api/procore/oauth/callback`
+
+Startup command:
 
 ```sh
-gcloud run deploy vendor-app \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated
+npm run start
 ```
 
-Set secrets/env vars on the service for Procore and database values. Do not deploy with localhost callback URLs.
+Build locally before publishing:
+
+```sh
+npm run build
+```
+
+Do not deploy with localhost callback URLs. Register the exact deployed callback URL in the Procore app configuration.
 
 ## Scaling note for OAuth state
 
-OAuth session/token/state currently use in-memory storage. For reliable multi-instance Cloud Run behavior, either:
+OAuth session/token/state currently use in-memory storage. For reliable multi-instance hosting behavior, either:
 
 1. keep instance count at 1, or
 2. move auth state/token storage to a shared store (for example Redis/Firestore/SQL).

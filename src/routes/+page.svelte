@@ -37,7 +37,7 @@
 		PROCORE_ALLOWED_ORIGINS,
 		PROCORE_PROXY_ENDPOINT
 	} from '$lib/procore-panel.js';
-	import horizontalLogo from '$lib/assets/BurnsMcDonnell_Horiz_Small_RGB_R_high.png';
+	import brandmark from '$lib/assets/Avicado-Brandmark.png';
 
 	/** @typedef {{ type?: string, address_purpose?: string, purchasing_site_flag?: boolean | string | number | null, pay_site_flag?: boolean | string | number | null, purchase_order_hold_flags?: boolean | string | number | null, supplier_id?: string, vendor_site_id?: string, id: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, status?: string, status_details?: string }} Site */
 	/** @typedef {{ key: string, id: string, supplier_id?: string, vendor_site_id?: string, name: string, address: string, address_line_1?: string, address_line_2?: string, address_line_3?: string, city: string, state: string, zip: string, types: string[], siteIds: string[], vendorSiteIds?: string[], purchasing_site_flag: boolean, pay_site_flag: boolean }} GroupedSite */
@@ -1591,8 +1591,8 @@
 			<img
 				class="footer-logo"
 				class:footer-logo--loading={sitesLoading}
-				src={horizontalLogo}
-				alt="Burns & McDonnell"
+				src={brandmark}
+				alt="Avicado"
 			/>
 		</footer>
 	</section>
