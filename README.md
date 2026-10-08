@@ -50,7 +50,7 @@ npm run start
 
 ## Deploy to Azure
 
-Use a Linux Azure App Service configured for Node.js 20 LTS.
+Use a Linux Azure App Service configured for Node.js 22 LTS.
 
 Recommended App Service settings:
 
